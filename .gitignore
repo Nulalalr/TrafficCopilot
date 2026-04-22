@@ -55,14 +55,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-logs/
+logs/*
+!logs/.gitkeep
 log/
 tmp/
 temp/
 cache/
-output/
+output/*
+!output/.gitkeep
 outputs/
-data/
+data/*
+!data/.gitkeep
 datasets/
 *.sqlite
 *.db
