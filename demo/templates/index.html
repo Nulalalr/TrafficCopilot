@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrafficCopilot Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="page-shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">TrafficCopilot Demo</p>
+        <h1>交警手势识别与时序意图解析演示</h1>
+        <p class="hero-text">
+          这个 demo 按设计方案的核心思路做了一个可展示原型：单帧识别负责感知，滑动窗口和简化 FSM 负责稳定输出，最终把手势映射为可消费的标准化交通指令。
+        </p>
+      </div>
+      <div class="hero-stats">
+        <div class="stat-card">
+          <span class="stat-label">验证集准确率</span>
+          <strong>{{ "%.1f"|format(metrics.valid_accuracy * 100) }}%</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">测试集准确率</span>
+          <strong>{{ "%.1f"|format(metrics.test_accuracy * 100) }}%</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">样本总量</span>
+          <strong>{{ metrics.sample_counts.train + metrics.sample_counts.valid + metrics.sample_counts.test }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>上传图片识别</h2>
+          <button id="reset-upload-session" class="ghost-button">重置时序状态</button>
+        </div>
+        <form id="upload-form">
+          <label class="upload-box" for="image-input">
+            <input id="image-input" name="file" type="file" accept="image/*">
+            <span>点击上传一张交警手势图片</span>
+            <small>支持本地图片；上传后直接输出原始类别和稳定指令</small>
+          </label>
+        </form>
+        <div class="preview-wrap">
+          <img id="upload-preview" alt="预览图">
+        </div>
+        <div class="result-grid">
+          <div class="result-card accent">
+            <span>稳定输出指令</span>
+            <strong id="upload-command">等待输入</strong>
+            <small id="upload-command-desc">上传图片后显示</small>
+          </div>
+          <div class="result-card">
+            <span>单帧识别类别</span>
+            <strong id="upload-label">-</strong>
+            <small id="upload-confidence">置信度 -</small>
+          </div>
+          <div class="result-card">
+            <span>系统状态</span>
+            <strong id="upload-state">IDLE</strong>
+            <small id="upload-latency">延迟 -</small>
+          </div>
+        </div>
+        <div class="window-card">
+          <span>最近窗口</span>
+          <div id="upload-window" class="window-tags"></div>
+          <p id="upload-reason" class="reason-text">时序引擎尚未收到输入。</p>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <h2>预置序列播放</h2>
+          <div class="button-row">
+            <button id="play-sequence" class="primary-button">开始自动播放</button>
+            <button id="next-frame" class="ghost-button">单步播放</button>
+          </div>
+        </div>
+        <div class="scenario-select">
+          {% for scenario in demo_sequences %}
+          <button class="scenario-button {% if loop.first %}active{% endif %}" data-scenario-id="{{ scenario.id }}">
+            <strong>{{ scenario.name }}</strong>
+            <span>{{ scenario.description }}</span>
+          </button>
+          {% endfor %}
+        </div>
+        <div class="sequence-stage">
+          <img id="sequence-image" alt="序列帧">
+          <div class="sequence-meta">
+            <div class="sequence-badge">
+              <span>预期标签</span>
+              <strong id="sequence-expected">-</strong>
+            </div>
+            <div class="sequence-badge">
+              <span>稳定指令</span>
+              <strong id="sequence-command">-</strong>
+            </div>
+            <div class="sequence-badge">
+              <span>状态</span>
+              <strong id="sequence-state">IDLE</strong>
+            </div>
+          </div>
+        </div>
+        <div class="timeline-wrap" id="sequence-timeline"></div>
+        <p id="sequence-reason" class="reason-text">点击开始播放，观察时序模块如何抑制指令跳变。</p>
+      </article>
+    </section>
+
+    <section class="panel bottom-panel">
+      <div class="panel-head">
+        <h2>当前 demo 说明</h2>
+      </div>
+      <div class="info-grid">
+        <div>
+          <h3>标准化指令映射</h3>
+          <ul class="flat-list">
+            {% for command, description in command_descriptions.items() %}
+            <li><code>{{ command }}</code>：{{ description }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div>
+          <h3>训练集类别分布</h3>
+          <ul class="flat-list compact">
+            {% for label, count in metrics.class_distribution.items() %}
+            <li><span>{{ label }}</span><strong>{{ count }}</strong></li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">
+        说明：这是一个为展示效果优化的快速原型，重点体现“识别 + 时序稳定输出”的系统思想，不等价于真实车载量产方案。
+      </p>
+    </section>
+  </div>
+
+  <script>
+    window.__BOOTSTRAP__ = {
+      demoSequences: {{ demo_sequences|tojson }},
+    };
+  </script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
