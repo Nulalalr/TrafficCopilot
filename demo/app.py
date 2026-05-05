@@ -454,6 +454,82 @@ def make_single_frame_intent(prediction):
         "description": COMMAND_DESCRIPTIONS.get(command, "Undefined"),
     }
 
+from typing import Sequence, Dict
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+def flatten_labels(sequences: Sequence[Dict]) -> np.ndarray:
+    """
+    展平演示场景序列中的真实标签
+    Args:
+        sequences: 由_build_demo_sequences生成的演示场景序列  
+    Returns:
+        展平后的真实标签数组
+    """
+    labels = []
+    for scenario in sequences:
+        for frame in scenario["frames"]:
+            labels.append(frame["label"])
+    return np.array(labels)
+
+def flatten_preds(preds: Sequence[np.ndarray]) -> np.ndarray:
+    """
+    展平模型预测结果
+    Args:
+        preds: 由predict函数生成的预测结果序列  
+    Returns:
+        展平后的预测标签数组
+    """
+    return np.concatenate(preds)
+
+def evaluate_model(classifier, split="valid"):
+    """
+    评估模型在指定数据集划分上的性能
+    Args:
+        classifier: ModelGestureClassifier实例
+        split: 数据集划分（"train"/"valid"/"test"）
+    Returns:
+        包含评估指标的字典
+    """
+    samples = classifier.samples_by_split[split]
+    
+    preds = []
+    true_labels = []
+    for sample in samples:
+        prediction = classifier.predict(sample.path)
+        preds.append(np.array([prediction["label"]]))
+        true_labels.append(sample.label)
+    
+    pred_labels = flatten_preds(preds)
+    
+    true_labels = np.array(true_labels)
+    
+    accuracy = accuracy_score(true_labels, pred_labels)
+    precision = precision_score(true_labels, pred_labels, average="macro")
+    recall = recall_score(true_labels, pred_labels, average="macro")
+    f1 = f1_score(true_labels, pred_labels, average="macro")
+    
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+
+# 评估验证集
+valid_result = evaluate_model(classifier, split="valid")
+print(f"Valid Accuracy: {valid_result['accuracy']:.4f}")
+print(f"Valid Precision: {valid_result['precision']:.4f}")
+print(f"Valid Recall: {valid_result['recall']:.4f}")
+print(f"Valid F1: {valid_result['f1']:.4f}")
+
+# 评估测试集
+test_result = evaluate_model(classifier, split="test")
+print(f"Test Accuracy: {test_result['accuracy']:.4f}")
+print(f"Test Precision: {test_result['precision']:.4f}")
+print(f"Test Recall: {test_result['recall']:.4f}")
+print(f"Test F1: {test_result['f1']:.4f}")
+
 
 @app.route("/")
 def index():
@@ -552,6 +628,34 @@ def predict_upload():
 def demo_sequences():
     return jsonify({"scenarios": classifier.demo_sequences})
 
+
+@app.route("/api/evaluate/<split>")
+def evaluate_split(split):
+    if split not in ["train", "valid", "test"]:
+        return jsonify({"error": "Invalid split"}), 400
+    result = evaluate_model(classifier, split=split)
+    return jsonify({
+        "accuracy": round(result["accuracy"], 4),
+        "precision": round(result["precision"], 4),
+        "recall": round(result["recall"], 4),
+        "f1": round(result["f1"], 4)
+    })
+
+@app.route("/evaluate")
+def evaluate_page():
+    valid_result = evaluate_model(classifier, split="valid")
+    test_result = evaluate_model(classifier, split="test")
+    return render_template(
+        "evaluate.html",
+        valid_accuracy=round(valid_result["accuracy"], 4),
+        valid_precision=round(valid_result["precision"], 4),
+        valid_recall=round(valid_result["recall"], 4),
+        valid_f1=round(valid_result["f1"], 4),
+        test_accuracy=round(test_result["accuracy"], 4),
+        test_precision=round(test_result["precision"], 4),
+        test_recall=round(test_result["recall"], 4),
+        test_f1=round(test_result["f1"], 4)
+    )
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
