@@ -1,0 +1,49 @@
+{
+  "device": "cpu",
+  "class_names": [
+    "change lanes",
+    "go straight",
+    "pull over",
+    "slow down",
+    "stop",
+    "turn left",
+    "turn right",
+    "wait for  left turn"
+  ],
+  "num_classes": 8,
+  "pose_feature_dim": 56,
+  "train_samples": 234,
+  "valid_samples": 22,
+  "test_samples": 11,
+  "best_valid_acc": 1.0,
+  "test_loss": 0.056421,
+  "test_acc": 1.0,
+  "test_predictions": [
+    6,
+    0,
+    5,
+    2,
+    6,
+    0,
+    6,
+    2,
+    1,
+    1,
+    0
+  ],
+  "test_targets": [
+    6,
+    0,
+    5,
+    2,
+    6,
+    0,
+    6,
+    2,
+    1,
+    1,
+    0
+  ],
+  "best_checkpoint": "experiments\\fusion_mobilenetv3_pose\\best_model.pth",
+  "last_checkpoint": "experiments\\fusion_mobilenetv3_pose\\last_model.pth"
+}

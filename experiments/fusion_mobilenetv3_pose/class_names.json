@@ -1,0 +1,13 @@
+{
+  "class_names": [
+    "change lanes",
+    "go straight",
+    "pull over",
+    "slow down",
+    "stop",
+    "turn left",
+    "turn right",
+    "wait for  left turn"
+  ],
+  "pose_feature_dim": 56
+}

@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import base64
 import csv
 import io
 import re
+import sys
 import time
 import uuid
 from collections import Counter, deque
@@ -9,16 +12,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
-import numpy as np
+import torch
+import yaml
 from flask import Flask, jsonify, render_template, request, send_file
-from PIL import Image
+from PIL import Image, ImageDraw
+from torchvision import transforms
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.model.mobilenetv3_classifier import build_mobilenetv3_small
 
 
 DATASET_ROOT = Path(__file__).parent / "traffic gestures.v1i.multiclass"
 CLASS_CSV_NAME = "_classes.csv"
-IMAGE_SIZE = (32, 32)
-HOG_SIZE = (64, 64)
-TOP_K = 3
+CHECKPOINT_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "best_model.pth"
+CHECKPOINT_METRICS_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "metrics.json"
+CHECKPOINT_CONFIG_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "config.yaml"
+POSE_TASK_MODEL_PATH = PROJECT_ROOT / "weights" / "pose_landmarker_lite.task"
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
 LABEL_TO_COMMAND = {
     "change lanes": "CHANGE_LANES",
@@ -32,30 +47,41 @@ LABEL_TO_COMMAND = {
 }
 
 COMMAND_DESCRIPTIONS = {
-    "CHANGE_LANES": "建议车辆变道通过",
-    "GO_STRAIGHT": "允许直行",
-    "PULL_OVER": "靠边停车",
-    "SLOW_DOWN": "减速观察",
-    "STOP": "立即停车等待",
-    "TURN_LEFT": "允许左转",
-    "TURN_RIGHT": "允许右转",
-    "WAIT_LEFT_TURN": "左转待转",
-    "UNKNOWN": "置信度不足，进入安全降级",
+    "CHANGE_LANES": "Suggest lane change",
+    "GO_STRAIGHT": "Allow going straight",
+    "PULL_OVER": "Pull over to roadside",
+    "SLOW_DOWN": "Slow down and observe",
+    "STOP": "Stop immediately",
+    "TURN_LEFT": "Allow left turn",
+    "TURN_RIGHT": "Allow right turn",
+    "WAIT_LEFT_TURN": "Wait for left turn",
+    "UNKNOWN": "Confidence too low, degrade to safe state",
 }
 
 DEMO_SCENARIOS = [
     {
         "id": "intersection_control",
-        "name": "路口放行演示",
-        "description": "模拟 STOP -> GO_STRAIGHT -> TURN_LEFT 的指挥过程。",
+        "name": "Intersection Control",
+        "description": "STOP -> GO_STRAIGHT -> TURN_LEFT",
         "labels": ["stop", "stop", "stop", "go straight", "go straight", "go straight", "turn left", "turn left", "turn left"],
     },
     {
         "id": "lane_guidance",
-        "name": "车辆引导演示",
-        "description": "模拟 SLOW_DOWN -> CHANGE_LANES -> PULL_OVER 的连续指令。",
+        "name": "Lane Guidance",
+        "description": "SLOW_DOWN -> CHANGE_LANES -> PULL_OVER",
         "labels": ["slow down", "slow down", "slow down", "change lanes", "change lanes", "change lanes", "pull over", "pull over", "pull over"],
     },
+]
+
+POSE_CONNECTIONS = [
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+    (11, 23),
+    (12, 24),
+    (23, 24),
 ]
 
 
@@ -64,47 +90,6 @@ class Sample:
     path: Path
     label: str
     split: str
-
-
-class FeatureExtractor:
-    @staticmethod
-    def open_image(image_source) -> Image.Image:
-        if isinstance(image_source, Image.Image):
-            return image_source.convert("RGB")
-        return Image.open(image_source).convert("RGB")
-
-    @staticmethod
-    def resize_gray(image_source, size):
-        image = FeatureExtractor.open_image(image_source).convert("L").resize(size)
-        return np.asarray(image, dtype=np.float32) / 255.0
-
-    @staticmethod
-    def hog(gray, cell=8, bins=9):
-        grad_y = np.zeros_like(gray)
-        grad_x = np.zeros_like(gray)
-        grad_y[1:-1, :] = gray[2:, :] - gray[:-2, :]
-        grad_x[:, 1:-1] = gray[:, 2:] - gray[:, :-2]
-        magnitude = np.sqrt(grad_x * grad_x + grad_y * grad_y)
-        angle = (np.arctan2(grad_y, grad_x) % np.pi) / np.pi * bins
-
-        height, width = gray.shape
-        feats = []
-        for y in range(0, height, cell):
-            for x in range(0, width, cell):
-                hist = np.zeros(bins, dtype=np.float32)
-                mag_block = magnitude[y : y + cell, x : x + cell].ravel()
-                ang_block = angle[y : y + cell, x : x + cell].ravel()
-                for mag_value, ang_value in zip(mag_block, ang_block):
-                    hist[int(ang_value) % bins] += mag_value
-                feats.append(hist / (np.linalg.norm(hist) + 1e-6))
-        return np.concatenate(feats)
-
-    @staticmethod
-    def extract(image_source):
-        small_gray = FeatureExtractor.resize_gray(image_source, IMAGE_SIZE).ravel()
-        hog_gray = FeatureExtractor.resize_gray(image_source, HOG_SIZE)
-        hog_feature = FeatureExtractor.hog(hog_gray)
-        return np.concatenate([small_gray, hog_feature]).astype(np.float32)
 
 
 class GestureDataset:
@@ -130,76 +115,61 @@ class GestureDataset:
         return {"train": train, "valid": valid, "test": test}
 
 
-class KNNGestureClassifier:
-    def __init__(self, dataset_root: Path):
+class ModelGestureClassifier:
+    def __init__(self, dataset_root: Path, checkpoint_path: Path, metrics_path: Path, config_path: Path):
         self.dataset_root = dataset_root
         self.dataset = GestureDataset(dataset_root)
         self.samples_by_split = self.dataset.all_samples()
         self.class_names = list(self.dataset.class_names)
-        self.feature_mean = None
-        self.feature_std = None
-        self.support_features = None
-        self.support_labels = []
-        self.metrics = {}
-        self.demo_sequences = []
-        self._build()
+        self.metrics = self._build_metrics(metrics_path)
+        self.demo_sequences = self._build_demo_sequences()
+        self.model_name = "MobileNetV3 + Weather Aug"
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model, self.transform = self._load_model(checkpoint_path, config_path)
 
-    def _vectorize(self, samples):
-        return np.stack([FeatureExtractor.extract(sample.path) for sample in samples])
-
-    def _standardize(self, features):
-        return (features - self.feature_mean) / self.feature_std
-
-    def _predict_from_matrix(self, feature_vector, features, labels):
-        distances = np.sum((features - feature_vector) ** 2, axis=1)
-        nearest_ids = np.argsort(distances)[:TOP_K]
-        nearest_distances = distances[nearest_ids]
-        nearest_labels = [labels[idx] for idx in nearest_ids]
-
-        weights = 1.0 / (nearest_distances + 1e-6)
-        class_scores = {label: 0.0 for label in self.class_names}
-        for label, weight in zip(nearest_labels, weights):
-            class_scores[label] += float(weight)
-
-        total_score = sum(class_scores.values()) + 1e-6
-        probabilities = {label: score / total_score for label, score in class_scores.items()}
-        ranked = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
-
-        top_label = nearest_labels[0]
-        top_probability = probabilities[top_label]
-        runner_up_probability = ranked[1][1] if len(ranked) > 1 else 0.0
-        margin = top_probability - runner_up_probability
-        support_count = Counter(nearest_labels)[top_label]
-
-        is_unknown = top_probability < 0.44 or margin < 0.08
+    def _build_metrics(self, metrics_path: Path):
+        with open(metrics_path, "r", encoding="utf-8") as handle:
+            raw_metrics = yaml.safe_load(handle)
+        train_samples = self.samples_by_split["train"]
         return {
-            "label": top_label,
-            "confidence": round(float(top_probability), 4),
-            "margin": round(float(margin), 4),
-            "is_unknown": is_unknown,
-            "neighbors": [
-                {
-                    "label": labels[idx],
-                    "distance": round(float(distances[idx]), 4),
-                    "split": getattr(self, "support_split_names", {}).get(idx, "support"),
-                }
-                for idx in nearest_ids
-            ],
-            "topk": [{"label": label, "probability": round(float(probability), 4)} for label, probability in ranked[:3]],
+            "valid_accuracy": raw_metrics["best_valid_acc"],
+            "test_accuracy": raw_metrics["test_acc"],
+            "sample_counts": {
+                split_name: len(samples) for split_name, samples in self.samples_by_split.items()
+            },
+            "class_distribution": {
+                label: sum(1 for sample in train_samples if sample.label == label) for label in self.class_names
+            },
         }
 
-    def _evaluate(self, train_samples, eval_samples):
-        train_features = self._vectorize(train_samples)
-        self.feature_mean = train_features.mean(axis=0)
-        self.feature_std = train_features.std(axis=0) + 1e-6
-        train_features = self._standardize(train_features)
-        eval_features = self._standardize(self._vectorize(eval_samples))
+    def _load_model(self, checkpoint_path: Path, config_path: Path):
+        with open(config_path, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
 
-        predictions = []
-        for feature_vector in eval_features:
-            predictions.append(self._predict_from_matrix(feature_vector, train_features, [sample.label for sample in train_samples])["label"])
-        accuracy = sum(pred == sample.label for pred, sample in zip(predictions, eval_samples)) / len(eval_samples)
-        return round(float(accuracy), 4)
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        class_names = checkpoint["class_names"]
+        if class_names != self.class_names:
+            raise ValueError("Checkpoint class names do not match dataset labels.")
+
+        model = build_mobilenetv3_small(
+            num_classes=len(class_names),
+            pretrained=False,
+            dropout=config["model"]["dropout"],
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.to(self.device)
+        model.eval()
+
+        image_size = config["data"]["image_size"]
+        transform = transforms.Compose(
+            [
+                transforms.Resize((image_size + 32, image_size + 32)),
+                transforms.CenterCrop(image_size),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+            ]
+        )
+        return model, transform
 
     def _build_demo_sequences(self):
         by_label = {label: [] for label in self.class_names}
@@ -228,41 +198,146 @@ class KNNGestureClassifier:
                     }
                 )
             scenarios.append({**scenario, "frames": frames})
-        self.demo_sequences = scenarios
+        return scenarios
 
     @staticmethod
     def _frame_number(filename):
         match = re.search(r"frame_(\d+)", filename)
         return int(match.group(1)) if match else 0
 
-    def _build(self):
-        train_samples = self.samples_by_split["train"]
-        valid_samples = self.samples_by_split["valid"]
-        test_samples = self.samples_by_split["test"]
+    def predict(self, image_source):
+        if isinstance(image_source, Image.Image):
+            image = image_source.convert("RGB")
+        else:
+            image = Image.open(image_source).convert("RGB")
 
-        self.metrics = {
-            "valid_accuracy": self._evaluate(train_samples, valid_samples),
-            "test_accuracy": self._evaluate(train_samples, test_samples),
-            "sample_counts": {
-                split_name: len(samples) for split_name, samples in self.samples_by_split.items()
-            },
-            "class_distribution": {
-                label: sum(1 for sample in train_samples if sample.label == label) for label in self.class_names
-            },
+        tensor = self.transform(image).unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            logits = self.model(tensor)
+            probs = torch.softmax(logits, dim=1)[0].cpu()
+
+        top_probs, top_indices = torch.topk(probs, k=min(3, len(self.class_names)))
+        top_label = self.class_names[int(top_indices[0])]
+        top_probability = float(top_probs[0])
+        runner_up_probability = float(top_probs[1]) if len(top_probs) > 1 else 0.0
+        margin = top_probability - runner_up_probability
+        is_unknown = top_probability < 0.5 or margin < 0.08
+
+        return {
+            "label": top_label,
+            "confidence": round(top_probability, 4),
+            "margin": round(margin, 4),
+            "is_unknown": is_unknown,
+            "topk": [
+                {
+                    "label": self.class_names[int(index)],
+                    "probability": round(float(probability), 4),
+                }
+                for probability, index in zip(top_probs.tolist(), top_indices.tolist())
+            ],
         }
 
-        support_samples = train_samples + valid_samples
-        support_features = self._vectorize(support_samples)
-        self.feature_mean = support_features.mean(axis=0)
-        self.feature_std = support_features.std(axis=0) + 1e-6
-        self.support_features = self._standardize(support_features)
-        self.support_labels = [sample.label for sample in support_samples]
-        self.support_split_names = {index: sample.split for index, sample in enumerate(support_samples)}
-        self._build_demo_sequences()
 
-    def predict(self, image_source):
-        feature_vector = self._standardize(FeatureExtractor.extract(image_source))
-        return self._predict_from_matrix(feature_vector, self.support_features, self.support_labels)
+class PoseVisualizer:
+    def __init__(self, model_path: Path):
+        self.api_kind = None
+        self.runtime = None
+        self.mp = None
+        try:
+            import mediapipe as mp
+        except Exception:
+            self.available = False
+            return
+
+        self.mp = mp
+        if hasattr(mp, "tasks") and hasattr(mp.tasks, "vision") and model_path.exists():
+            self.api_kind = "tasks"
+            self.available = True
+            self.runtime = self._create_tasks_runtime(model_path)
+        elif hasattr(mp, "solutions") and hasattr(mp.solutions, "pose"):
+            self.api_kind = "legacy"
+            self.available = True
+            self.runtime = mp.solutions.pose.Pose(
+                static_image_mode=True,
+                model_complexity=1,
+                enable_segmentation=False,
+                min_detection_confidence=0.5,
+            )
+        else:
+            self.available = False
+
+    def _create_tasks_runtime(self, model_path: Path):
+        BaseOptions = self.mp.tasks.BaseOptions
+        PoseLandmarker = self.mp.tasks.vision.PoseLandmarker
+        PoseLandmarkerOptions = self.mp.tasks.vision.PoseLandmarkerOptions
+        VisionRunningMode = self.mp.tasks.vision.RunningMode
+        options = PoseLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(model_path)),
+            running_mode=VisionRunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.5,
+            min_pose_presence_confidence=0.5,
+            min_tracking_confidence=0.5,
+            output_segmentation_masks=False,
+        )
+        return PoseLandmarker.create_from_options(options)
+
+    def _extract_landmarks(self, image: Image.Image):
+        if not self.available:
+            return []
+
+        if self.api_kind == "tasks":
+            rgb = torch.tensor(0)  # placeholder to satisfy linter path separation
+            del rgb
+            import numpy as np
+
+            rgb = np.array(image.convert("RGB"))
+            mp_image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
+            result = self.runtime.detect(mp_image)
+            if not result.pose_landmarks:
+                return []
+            return result.pose_landmarks[0]
+
+        import numpy as np
+
+        result = self.runtime.process(image=np.array(image.convert("RGB")))
+        if result.pose_landmarks is None:
+            return []
+        return result.pose_landmarks.landmark
+
+    def draw_overlay(self, image: Image.Image):
+        overlay = image.convert("RGB").copy()
+        draw = ImageDraw.Draw(overlay)
+        landmarks = self._extract_landmarks(overlay)
+        if not landmarks:
+            return overlay, False
+
+        width, height = overlay.size
+
+        def pt(idx):
+            landmark = landmarks[idx]
+            return (landmark.x * width, landmark.y * height)
+
+        for start_idx, end_idx in POSE_CONNECTIONS:
+            start_point = pt(start_idx)
+            end_point = pt(end_idx)
+            draw.line([start_point, end_point], fill=(255, 140, 80), width=4)
+
+        for idx in [11, 12, 13, 14, 15, 16, 23, 24]:
+            x, y = pt(idx)
+            visibility = float(getattr(landmarks[idx], "visibility", 1.0))
+            color = (48, 180, 90) if visibility >= 0.75 else (230, 170, 30) if visibility >= 0.45 else (220, 70, 70)
+            draw.ellipse((x - 6, y - 6, x + 6, y + 6), fill=color, outline=(255, 255, 255), width=2)
+
+        return overlay, True
+
+
+def image_to_data_url(image: Image.Image):
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
 
 
 class TemporalIntentEngine:
@@ -321,7 +396,7 @@ class TemporalIntentEngine:
             "stability": round(float(candidate_score / max(len(self.history), 1)), 4),
             "reason": reason,
             "window": list(self.history),
-            "description": COMMAND_DESCRIPTIONS.get(self.active_command, "未定义"),
+            "description": COMMAND_DESCRIPTIONS.get(self.active_command, "Undefined"),
         }
 
 
@@ -341,7 +416,13 @@ class SessionStore:
             self._store[session_id] = TemporalIntentEngine()
 
 
-classifier = KNNGestureClassifier(DATASET_ROOT)
+classifier = ModelGestureClassifier(
+    dataset_root=DATASET_ROOT,
+    checkpoint_path=CHECKPOINT_PATH,
+    metrics_path=CHECKPOINT_METRICS_PATH,
+    config_path=CHECKPOINT_CONFIG_PATH,
+)
+pose_visualizer = PoseVisualizer(POSE_TASK_MODEL_PATH)
 session_store = SessionStore()
 app = Flask(__name__)
 
@@ -362,7 +443,7 @@ def make_single_frame_intent(prediction):
         "command": command,
         "state": "SINGLE_FRAME",
         "stability": prediction["confidence"],
-        "reason": "single image inference without temporal smoothing",
+        "reason": f"single image inference with {classifier.model_name}",
         "window": [
             {
                 "label": prediction["label"],
@@ -370,7 +451,7 @@ def make_single_frame_intent(prediction):
                 "confidence": prediction["confidence"],
             }
         ],
-        "description": COMMAND_DESCRIPTIONS.get(command, "未定义"),
+        "description": COMMAND_DESCRIPTIONS.get(command, "Undefined"),
     }
 
 
@@ -399,6 +480,17 @@ def reset_session():
     session_id = payload.get("session_id") or str(uuid.uuid4())
     session_store.reset(session_id)
     return jsonify({"session_id": session_id, "status": "reset"})
+
+
+@app.route("/api/model-info")
+def model_info():
+    return jsonify(
+        {
+            "model_name": classifier.model_name,
+            "valid_accuracy": classifier.metrics["valid_accuracy"],
+            "test_accuracy": classifier.metrics["test_accuracy"],
+        }
+    )
 
 
 @app.route("/api/predict/sample", methods=["POST"])
@@ -443,10 +535,14 @@ def predict_upload():
     prediction = classifier.predict(image)
     temporal_result = make_single_frame_intent(prediction)
     latency_ms = (time.perf_counter() - start) * 1000
+    pose_overlay, pose_detected = pose_visualizer.draw_overlay(image)
 
     return jsonify(
         {
             "session_id": session_id,
+            "pose_overlay": image_to_data_url(pose_overlay),
+            "pose_detected": pose_detected,
+            "model_name": classifier.model_name,
             **make_prediction_payload(prediction, temporal_result, latency_ms),
         }
     )
