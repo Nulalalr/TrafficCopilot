@@ -9,6 +9,8 @@ let playTimer = null;
 
 const uploadInput = document.getElementById("image-input");
 const uploadPreview = document.getElementById("upload-preview");
+const posePreview = document.getElementById("pose-preview");
+const poseStatus = document.getElementById("pose-status");
 const uploadCommand = document.getElementById("upload-command");
 const uploadCommandDesc = document.getElementById("upload-command-desc");
 const uploadLabel = document.getElementById("upload-label");
@@ -17,6 +19,7 @@ const uploadState = document.getElementById("upload-state");
 const uploadLatency = document.getElementById("upload-latency");
 const uploadWindow = document.getElementById("upload-window");
 const uploadReason = document.getElementById("upload-reason");
+const modelBadge = document.getElementById("model-badge");
 
 const sequenceImage = document.getElementById("sequence-image");
 const sequenceExpected = document.getElementById("sequence-expected");
@@ -30,13 +33,13 @@ const nextFrameButton = document.getElementById("next-frame");
 function renderWindow(container, items) {
   container.innerHTML = "";
   if (!items || items.length === 0) {
-    container.innerHTML = '<span class="tag">暂无</span>';
+    container.innerHTML = '<span class="tag">None</span>';
     return;
   }
   items.forEach((item) => {
     const node = document.createElement("span");
     node.className = "tag";
-    node.textContent = `${item.command} · ${Math.round(item.confidence * 100)}%`;
+    node.textContent = `${item.command} | ${Math.round(item.confidence * 100)}%`;
     container.appendChild(node);
   });
 }
@@ -52,9 +55,16 @@ function applyPrediction(prefix, payload) {
   if (prefix === "upload") {
     uploadCommandDesc.textContent = payload.intent.description;
     uploadLabel.textContent = payload.prediction.label;
-    uploadConfidence.textContent = `置信度 ${Math.round(payload.prediction.confidence * 100)}%`;
-    uploadLatency.textContent = `延迟 ${payload.latency_ms} ms`;
+    uploadConfidence.textContent = `Confidence ${Math.round(payload.prediction.confidence * 100)}%`;
+    uploadLatency.textContent = `Latency ${payload.latency_ms} ms`;
     renderWindow(uploadWindow, payload.intent.window);
+    if (payload.pose_overlay) {
+      posePreview.src = payload.pose_overlay;
+      posePreview.style.display = "block";
+    }
+    if (poseStatus) {
+      poseStatus.textContent = payload.pose_detected ? "Pose detected" : "Pose not detected";
+    }
   }
 }
 
@@ -77,6 +87,20 @@ async function resetSession(sessionId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId }),
   });
+}
+
+async function loadModelInfo() {
+  try {
+    const response = await fetch("/api/model-info");
+    const payload = await response.json();
+    if (modelBadge) {
+      modelBadge.textContent = `Current model: ${payload.model_name} | valid ${(payload.valid_accuracy * 100).toFixed(1)}% | test ${(payload.test_accuracy * 100).toFixed(1)}%`;
+    }
+  } catch (error) {
+    if (modelBadge) {
+      modelBadge.textContent = "Current model: unavailable";
+    }
+  }
 }
 
 async function predictUploadedFile(file) {
@@ -113,7 +137,7 @@ async function playCurrentFrame() {
   sequenceExpected.textContent = frame.command;
   sequenceCommand.textContent = payload.intent.command;
   sequenceState.textContent = payload.intent.state;
-  sequenceReason.textContent = `${payload.intent.reason}；原始类别：${payload.prediction.label}；置信度 ${Math.round(payload.prediction.confidence * 100)}%。`;
+  sequenceReason.textContent = `${payload.intent.reason}; raw label: ${payload.prediction.label}; confidence ${Math.round(payload.prediction.confidence * 100)}%.`;
   renderTimeline();
   currentFrameIndex += 1;
 }
@@ -123,7 +147,7 @@ function stopPlayback() {
     clearInterval(playTimer);
     playTimer = null;
   }
-  playSequenceButton.textContent = "开始自动播放";
+  playSequenceButton.textContent = "Start Auto Play";
 }
 
 async function startPlayback() {
@@ -145,7 +169,7 @@ async function startPlayback() {
     }
     await playCurrentFrame();
   }, 1200);
-  playSequenceButton.textContent = "停止播放";
+  playSequenceButton.textContent = "Stop";
 }
 
 function bindScenarioButtons() {
@@ -186,13 +210,19 @@ uploadInput.addEventListener("change", async (event) => {
 document.getElementById("reset-upload-session").addEventListener("click", async () => {
   uploadSessionId = crypto.randomUUID();
   await resetSession(uploadSessionId);
-  uploadCommand.textContent = "等待输入";
-  uploadCommandDesc.textContent = "上传图片后显示";
+  uploadCommand.textContent = "Waiting";
+  uploadCommandDesc.textContent = "Upload an image to run inference";
   uploadLabel.textContent = "-";
-  uploadConfidence.textContent = "置信度 -";
+  uploadConfidence.textContent = "Confidence -";
   uploadState.textContent = "IDLE";
-  uploadLatency.textContent = "延迟 -";
-  uploadReason.textContent = "时序状态已重置。";
+  uploadLatency.textContent = "Latency -";
+  uploadReason.textContent = "Temporal state reset.";
+  if (posePreview) {
+    posePreview.removeAttribute("src");
+  }
+  if (poseStatus) {
+    poseStatus.textContent = "Waiting for upload";
+  }
   renderWindow(uploadWindow, []);
 });
 
@@ -209,6 +239,7 @@ nextFrameButton.addEventListener("click", async () => {
 
 bindScenarioButtons();
 renderTimeline();
+loadModelInfo();
 
 if (currentScenario?.frames?.[0]) {
   const firstFrame = currentScenario.frames[0];

@@ -13,8 +13,9 @@
         <p class="eyebrow">TrafficCopilot Demo</p>
         <h1>交警手势识别与时序意图解析演示</h1>
         <p class="hero-text">
-          这个 demo 按设计方案的核心思路做了一个可展示原型：单帧识别负责感知，滑动窗口和简化 FSM 负责稳定输出，最终把手势映射为可消费的标准化交通指令。
+          当前页面使用真实训练得到的 MobileNetV3 模型进行推理，并在上传图片时同时展示骨架提取可视化结果。
         </p>
+        <p class="hero-text" id="model-badge">Current model: loading...</p>
       </div>
       <div class="hero-stats">
         <div class="stat-card">
@@ -42,11 +43,19 @@
           <label class="upload-box" for="image-input">
             <input id="image-input" name="file" type="file" accept="image/*">
             <span>点击上传一张交警手势图片</span>
-            <small>支持本地图片；上传后直接输出原始类别和稳定指令</small>
+            <small>将展示原图、骨架叠加图和模型预测结果</small>
           </label>
         </form>
-        <div class="preview-wrap">
-          <img id="upload-preview" alt="预览图">
+        <div class="dual-preview">
+          <div class="preview-panel">
+            <span class="preview-title">原图</span>
+            <img id="upload-preview" alt="上传预览图">
+          </div>
+          <div class="preview-panel">
+            <span class="preview-title">骨架可视化</span>
+            <img id="pose-preview" alt="骨架叠加图">
+            <small id="pose-status" class="pose-status">等待上传图片</small>
+          </div>
         </div>
         <div class="result-grid">
           <div class="result-card accent">
@@ -112,7 +121,7 @@
 
     <section class="panel bottom-panel">
       <div class="panel-head">
-        <h2>当前 demo 说明</h2>
+        <h2>当前 Demo 说明</h2>
       </div>
       <div class="info-grid">
         <div>
@@ -133,7 +142,7 @@
         </div>
       </div>
       <p class="footnote">
-        说明：这是一个为展示效果优化的快速原型，重点体现“识别 + 时序稳定输出”的系统思想，不等价于真实车载量产方案。
+        说明：主分类模型采用真实训练权重；骨架图用于展示结构辅助感知能力。
       </p>
     </section>
   </div>
