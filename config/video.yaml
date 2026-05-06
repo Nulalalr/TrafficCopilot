@@ -1,0 +1,82 @@
+video:
+  input_path: demo/assets/sample.mp4
+  output_dir: outputs/video_runs
+  sample_every: 1
+  max_frames: null
+  draw_overlay: true
+  save_video: true
+  save_jsonl: true
+
+web:
+  host: 127.0.0.1
+  port: 5000
+  debug: false
+  metrics_path: experiments/mobilenetv3_albu_weather/metrics.json
+  eval_cache_ttl_sec: 600
+
+data:
+  dataset_root: demo/traffic gestures.v1i.multiclass
+
+thresholds:
+  confidence: 0.5
+  margin: 0.08
+
+system:
+  dataset:
+    target: core.plugins.roboflow_dataset:RoboflowDataset
+    params: {}
+
+  predictor:
+    target: core.plugins.pytorch_classifier:PyTorchMobileNetV3Classifier
+    params:
+      checkpoint_path: experiments/mobilenetv3_albu_weather/best_model_quantized.pth
+      config_path: experiments/mobilenetv3_albu_weather/config.yaml
+      device: auto
+      model_name: MobileNetV3 + Weather Aug
+
+  pose_overlay:
+    target: core.plugins.mediapipe_pose_overlay:MediaPipePoseOverlay
+    params:
+      model_path: weights/pose_landmarker_lite.task
+
+  intent_engine:
+    target: core.plugins.temporal_intent:TemporalIntentEngine
+    params:
+      window_size: 5
+      activation_count: 3
+      hold_frames: 2
+      label_to_command:
+        change lanes: CHANGE_LANES
+        go straight: GO_STRAIGHT
+        pull over: PULL_OVER
+        slow down: SLOW_DOWN
+        stop: STOP
+        turn left: TURN_LEFT
+        turn right: TURN_RIGHT
+        wait for  left turn: WAIT_LEFT_TURN
+      command_descriptions:
+        CHANGE_LANES: Suggest lane change
+        GO_STRAIGHT: Allow going straight
+        PULL_OVER: Pull over to roadside
+        SLOW_DOWN: Slow down and observe
+        STOP: Stop immediately
+        TURN_LEFT: Allow left turn
+        TURN_RIGHT: Allow right turn
+        WAIT_LEFT_TURN: Wait for left turn
+        UNKNOWN: Confidence too low, degrade to safe state
+
+  police_detector:
+    target: core.plugins.mediapipe_police_detector:MediaPipePosePoliceDetector
+    params:
+      model_path: weights/pose_landmarker_lite.task
+      num_poses: 2
+      padding_ratio: 0.25
+      min_score: 0.45
+
+  tracker:
+    target: core.plugins.single_iou_tracker:SingleIouTracker
+    params:
+      iou_threshold: 0.2
+      max_lost: 15
+      smooth: 0.65
+
