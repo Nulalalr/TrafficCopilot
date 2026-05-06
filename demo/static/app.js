@@ -249,3 +249,24 @@ if (currentScenario?.frames?.[0]) {
   sequenceState.textContent = "IDLE";
   sequenceReason.textContent = currentScenario.description;
 }
+
+//评估
+fetch('/api/evaluate/valid')
+  .then(response => response.json())
+  .then(data => {
+    // 更新网页内容
+    document.getElementById('valid-accuracy').textContent = data.accuracy;
+    document.getElementById('valid-precision').textContent = data.precision;
+    document.getElementById('valid-recall').textContent = data.recall;
+    document.getElementById('valid-f1').textContent = data.f1;
+  });
+
+fetch('/api/evaluate/test')
+  .then(response => response.json())
+  .then(data => {
+    // 更新网页内容
+    document.getElementById('test-accuracy').textContent = data.accuracy;
+    document.getElementById('test-precision').textContent = data.precision;
+    document.getElementById('test-recall').textContent = data.recall;
+    document.getElementById('test-f1').textContent = data.f1;
+  });

@@ -5,3 +5,4 @@ PyYAML>=6.0
 torch>=2.2
 torchvision>=0.17
 mediapipe>=0.10
+scikit-learn==1.8.0
