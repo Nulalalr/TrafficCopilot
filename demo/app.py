@@ -28,7 +28,7 @@ from core.model.mobilenetv3_classifier import build_mobilenetv3_small
 
 DATASET_ROOT = Path(__file__).parent / "traffic gestures.v1i.multiclass"
 CLASS_CSV_NAME = "_classes.csv"
-CHECKPOINT_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "best_model.pth"
+CHECKPOINT_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "best_model_quantized.pth"
 CHECKPOINT_METRICS_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "metrics.json"
 CHECKPOINT_CONFIG_PATH = PROJECT_ROOT / "experiments" / "mobilenetv3_albu_weather" / "config.yaml"
 POSE_TASK_MODEL_PATH = PROJECT_ROOT / "weights" / "pose_landmarker_lite.task"
@@ -156,7 +156,12 @@ class ModelGestureClassifier:
             pretrained=False,
             dropout=config["model"]["dropout"],
         )
+        
         model.load_state_dict(checkpoint["model_state_dict"])
+        
+        if checkpoint.get("compressed", False) and checkpoint.get("compression_type") == "fp16":
+            model = model.half()
+        
         model.to(self.device)
         model.eval()
 
@@ -212,6 +217,9 @@ class ModelGestureClassifier:
             image = Image.open(image_source).convert("RGB")
 
         tensor = self.transform(image).unsqueeze(0).to(self.device)
+        
+        if next(self.model.parameters()).dtype == torch.float16:
+            tensor = tensor.half()
 
         with torch.no_grad():
             logits = self.model(tensor)
@@ -554,4 +562,4 @@ def demo_sequences():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
