@@ -317,6 +317,231 @@ body {
   margin-top: 20px;
 }
 
+.workflow-panel {
+  margin-top: 20px;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 18px;
+}
+
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.step-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(29, 33, 27, 0.08);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.step-card strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 18px;
+}
+
+.step-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.step-card.accent {
+  background: linear-gradient(135deg, rgba(83, 99, 65, 0.92), rgba(42, 122, 83, 0.96));
+  color: #fff;
+}
+
+.step-card.accent span,
+.step-card.accent small {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.modules-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(29, 33, 27, 0.08);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.modules-content {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.module-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(83, 99, 65, 0.07);
+  border: 1px solid rgba(83, 99, 65, 0.12);
+}
+
+.module-item strong {
+  font-size: 14px;
+}
+
+.module-item code {
+  font-size: 12px;
+}
+
+.eval-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.eval-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(29, 33, 27, 0.08);
+}
+
+.eval-pill select {
+  border-radius: 12px;
+  border: 1px solid rgba(29, 33, 27, 0.14);
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.8);
+  font: inherit;
+}
+
+.eval-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.eval-summary-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(29, 33, 27, 0.08);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.eval-summary-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.eval-summary-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.eval-visual-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.eval-card {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(29, 33, 27, 0.08);
+}
+
+.confusion-matrix {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.cm-grid {
+  display: grid;
+  gap: 4px;
+  overflow: auto;
+  padding-bottom: 4px;
+}
+
+.cm-cell {
+  position: relative;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(29, 33, 27, 0.82);
+}
+
+.mini-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.mini-item {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(83, 99, 65, 0.07);
+  border: 1px solid rgba(83, 99, 65, 0.12);
+  display: grid;
+  gap: 4px;
+}
+
+.mini-item strong {
+  font-size: 13px;
+}
+
+.mini-item small {
+  color: var(--muted);
+}
+
+.per-class-table {
+  margin-top: 12px;
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(29, 33, 27, 0.08);
+}
+
+.per-class-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.per-class-table th,
+.per-class-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(29, 33, 27, 0.08);
+  text-align: left;
+  font-size: 13px;
+}
+
+.per-class-table th {
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.per-class-table tr:last-child td {
+  border-bottom: none;
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -414,5 +639,21 @@ body {
   .evaluation-table td {
     padding: 12px 16px;
     font-size: 14px;
+  }
+
+  .workflow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .eval-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .eval-visual-grid {
+    grid-template-columns: 1fr;
   }
 }

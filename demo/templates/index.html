@@ -33,6 +33,57 @@
       </div>
     </section>
 
+    <section class="panel workflow-panel">
+      <div class="panel-head">
+        <h2>端到端工作流</h2>
+        <div class="button-row">
+          <button id="reload-config" class="ghost-button">重载配置</button>
+          <button id="toggle-modules" class="ghost-button">查看模块</button>
+        </div>
+      </div>
+      <div class="workflow-grid">
+        <div class="workflow-steps">
+          <div class="step-card">
+            <span>数据准备</span>
+            <strong>Roboflow Split</strong>
+            <small>train / valid / test</small>
+          </div>
+          <div class="step-card">
+            <span>数据增强</span>
+            <strong>Albumentations</strong>
+            <small>雨 / 雾 / 雪 / 模糊 / 退化</small>
+          </div>
+          <div class="step-card">
+            <span>模型训练</span>
+            <strong>MobileNetV3</strong>
+            <small>baseline / weather / fusion</small>
+          </div>
+          <div class="step-card">
+            <span>模型导出</span>
+            <strong>ONNX</strong>
+            <small>部署格式统一</small>
+          </div>
+          <div class="step-card">
+            <span>模型压缩</span>
+            <strong>FP16 / INT8</strong>
+            <small>端侧实时约束</small>
+          </div>
+          <div class="step-card accent">
+            <span>上线服务</span>
+            <strong>Web 推理</strong>
+            <small>可插拔模块 + 热重载</small>
+          </div>
+        </div>
+        <div class="workflow-modules" id="workflow-modules" style="display: none;">
+          <div class="modules-card">
+            <span>当前模块装配</span>
+            <div id="modules-content" class="modules-content"></div>
+            <p class="footnote" id="modules-hint">通过修改 config/web.yaml 并重载即可切换模型与算法模块。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel-grid">
       <article class="panel">
         <div class="panel-head">
@@ -147,8 +198,40 @@
     </section>
     <section class="panel bottom-panel" id="evaluation-results">
       <div class="panel-head">
-        <h2>Model Evaluation Results</h2>
+        <h2>测评体系与可视化</h2>
+        <div class="button-row">
+          <button class="scenario-button active" data-eval-split="valid" id="eval-tab-valid">Valid</button>
+          <button class="scenario-button" data-eval-split="test" id="eval-tab-test">Test</button>
+        </div>
       </div>
+      <div class="eval-toolbar">
+        <div class="eval-pill">
+          <span>抽样</span>
+          <select id="eval-max-samples">
+            <option value="">全量</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+        <div class="eval-pill">
+          <span>延迟统计</span>
+          <select id="eval-measure-latency">
+            <option value="1">开启</option>
+            <option value="0">关闭</option>
+          </select>
+        </div>
+        <div class="eval-pill">
+          <span>导出</span>
+          <select id="eval-export-format">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+          </select>
+        </div>
+        <button id="eval-refresh" class="primary-button">刷新测评</button>
+        <button id="eval-export" class="ghost-button">导出报告</button>
+      </div>
+      <div class="eval-summary" id="eval-summary"></div>
       <table class="evaluation-table">
         <thead>
           <tr>
@@ -180,6 +263,22 @@
           </tr>
         </tbody>
       </table>
+      <div class="eval-visual-grid">
+        <div class="eval-card">
+          <span>混淆矩阵（归一化）</span>
+          <div id="confusion-matrix" class="confusion-matrix"></div>
+        </div>
+        <div class="eval-card">
+          <span>最常见误判</span>
+          <div id="top-confusions" class="mini-list"></div>
+          <span style="margin-top: 14px; display: block;">低 F1 类别</span>
+          <div id="hard-classes" class="mini-list"></div>
+        </div>
+      </div>
+      <div class="eval-card">
+        <span>按类别指标（Precision / Recall / F1）</span>
+        <div id="per-class-table" class="per-class-table"></div>
+      </div>
     </section>
   </div>
 
