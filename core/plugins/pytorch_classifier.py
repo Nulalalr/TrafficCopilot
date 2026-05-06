@@ -40,14 +40,6 @@ class PyTorchMobileNetV3Classifier:
         self._device = self._resolve_device(self.device)
         self._model, self._transform = self._load_model()
 
-    @property
-    def class_names(self) -> list[str]:
-        return list(self.__dict__["class_names"])
-
-    @property
-    def model_name(self) -> str:
-        return self.__dict__["model_name"]
-
     def predict(self, image: Image.Image) -> Prediction:
         if not isinstance(image, Image.Image):
             raise TypeError("predict expects PIL.Image.Image")

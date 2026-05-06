@@ -41,14 +41,6 @@ class OnnxGestureClassifier:
         self._output_name = self._sess.get_outputs()[0].name
         self._image_size = self._load_image_size()
 
-    @property
-    def class_names(self) -> list[str]:
-        return list(self.__dict__["class_names"])
-
-    @property
-    def model_name(self) -> str:
-        return self.__dict__["model_name"]
-
     def predict(self, image: Image.Image) -> Prediction:
         if not isinstance(image, Image.Image):
             raise TypeError("predict expects PIL.Image.Image")

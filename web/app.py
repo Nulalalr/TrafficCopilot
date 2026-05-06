@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -13,10 +14,12 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request, send_file
 from PIL import Image
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from core.system.factory import build_system, load_yaml
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "web.yaml"
 
 

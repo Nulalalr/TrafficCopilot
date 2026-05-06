@@ -7,7 +7,7 @@ from pathlib import Path
 from core.system.contracts import Sample
 
 
-@dataclass(frozen=True)
+@dataclass
 class RoboflowDataset:
     dataset_root: Path
     class_csv_name: str = "_classes.csv"
@@ -61,4 +61,3 @@ class RoboflowDataset:
         if split in {"train", "test"}:
             return split
         raise ValueError(f"Invalid split: {split}")
-
