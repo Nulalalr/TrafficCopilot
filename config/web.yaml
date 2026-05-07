@@ -7,7 +7,7 @@ web:
   camera_config_path: config/camera.yaml
 
 data:
-  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
+  dataset_root: "../traffic gestures.v1i.multiclass"
 
 thresholds:
   confidence: 0.5

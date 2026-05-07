@@ -31,6 +31,8 @@ def build_system(config: dict[str, Any], project_root: Path) -> TrafficCopilotSy
         spec_predictor,
         class_names=dataset.class_names,
         project_root=project_root,
+        unknown_confidence_threshold=float(config.get("thresholds", {}).get("confidence", 0.5)),
+        unknown_margin_threshold=float(config.get("thresholds", {}).get("margin", 0.08)),
     )
 
     evaluator: Evaluator | None

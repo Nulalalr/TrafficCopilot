@@ -390,8 +390,9 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         dataset_root = Path(system.dataset.dataset_root) if hasattr(system.dataset, "dataset_root") else None
         if dataset_root is None:
             return jsonify({"error": "dataset root not available"}), 500
-        image_path = dataset_root / relative_path
-        if not image_path.exists() or dataset_root not in image_path.resolve().parents:
+        dataset_root = dataset_root.resolve()
+        image_path = (dataset_root / relative_path).resolve()
+        if not image_path.exists() or (image_path != dataset_root and dataset_root not in image_path.parents):
             return jsonify({"error": "image not found"}), 404
         return send_file(image_path)
 

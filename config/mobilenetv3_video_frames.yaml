@@ -4,11 +4,11 @@ model:
   dropout: 0.2
 
 data:
-  dataset_root: "../traffic gestures.v1i.multiclass"
-  image_size: 224
+  dataset_root: "data/video_frames_ctp_v1"
+  image_size: 160
 
 augment:
-  backend: albumentations
+  backend: torchvision
   horizontal_flip: 0.5
   shift_limit: 0.05
   scale_limit: 0.1
@@ -21,17 +21,17 @@ augment:
   sat_shift_limit: 15
   val_shift_limit: 15
   hsv_p: 0.35
-  weather_p: 0.5
-  degrade_p: 0.45
-  coarse_dropout_p: 0.3
+  weather_p: 0.35
+  degrade_p: 0.35
+  coarse_dropout_p: 0.25
 
 train:
-  run_name: mobilenetv3_albu_weather
+  run_name: mobilenetv3_video_frames
   output_root: experiments
   device: auto
   seed: 42
-  epochs: 25
-  batch_size: 16
+  epochs: 12
+  batch_size: 4
   num_workers: 0
   pin_memory: false
   lr: 0.0005

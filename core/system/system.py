@@ -64,6 +64,11 @@ class TrafficCopilotSystem:
                 self._sessions[session_id] = self.intent_engine_factory()
             return self._sessions[session_id]
 
+    def new_intent_engine(self) -> IntentEngine | None:
+        if self.intent_engine_factory is None:
+            return None
+        return self.intent_engine_factory()
+
     def predict_image(self, image: Image.Image, session_id: str | None = None) -> dict[str, Any]:
         start = time.perf_counter()
         prediction = self.predictor.predict(image)
