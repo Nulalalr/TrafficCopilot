@@ -14,7 +14,7 @@ video:
   save_jsonl: false
 
 data:
-  dataset_root: demo/traffic gestures.v1i.multiclass
+  dataset_root: "../traffic gestures.v1i.multiclass"
 
 thresholds:
   confidence: 0.5

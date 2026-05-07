@@ -2,13 +2,13 @@ web:
   host: 127.0.0.1
   port: 5000
   debug: false
-  metrics_path: experiments/mobilenetv3_albu_weather/metrics.json
+  metrics_path: experiments/mobilenetv3_video_frames/metrics.json
   eval_cache_ttl_sec: 600
-  camera_config_path: config/camera.yaml
-  video_config_path: config/video.yaml
+  camera_config_path: config/camera_video_frames.yaml
+  video_config_path: config/video_video_frames.yaml
 
 data:
-  dataset_root: "../traffic gestures.v1i.multiclass"
+  dataset_root: "data/video_frames_ctp_v1"
 
 thresholds:
   confidence: 0.5
@@ -22,10 +22,10 @@ system:
   predictor:
     target: core.plugins.pytorch_classifier:PyTorchMobileNetV3Classifier
     params:
-      checkpoint_path: experiments/mobilenetv3_albu_weather/best_model_quantized.pth
-      config_path: experiments/mobilenetv3_albu_weather/config.yaml
+      checkpoint_path: experiments/mobilenetv3_video_frames/best_model.pth
+      config_path: experiments/mobilenetv3_video_frames/config.yaml
       device: auto
-      model_name: MobileNetV3 + Weather Aug
+      model_name: MobileNetV3 Video Frames
 
   pose_overlay:
     target: core.plugins.mediapipe_pose_overlay:MediaPipePoseOverlay

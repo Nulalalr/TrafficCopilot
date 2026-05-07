@@ -192,7 +192,8 @@ body {
 #upload-preview,
 #pose-preview,
 #sequence-image,
-#camera-video {
+#camera-video,
+#video-output {
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
@@ -207,6 +208,12 @@ body {
 }
 
 #camera-video {
+  height: 360px;
+  aspect-ratio: auto;
+  display: block;
+}
+
+#video-output {
   height: 360px;
   aspect-ratio: auto;
   display: block;

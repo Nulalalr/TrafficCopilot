@@ -1,14 +1,21 @@
+video:
+  input_path: ""
+  output_dir: outputs/video_runs
+  sample_every: 1
+  max_frames: null
+  draw_overlay: true
+  save_video: true
+  save_jsonl: true
+
 web:
   host: 127.0.0.1
   port: 5000
   debug: false
-  metrics_path: experiments/mobilenetv3_albu_weather/metrics.json
+  metrics_path: experiments/mobilenetv3_video_frames/metrics.json
   eval_cache_ttl_sec: 600
-  camera_config_path: config/camera.yaml
-  video_config_path: config/video.yaml
 
 data:
-  dataset_root: "../traffic gestures.v1i.multiclass"
+  dataset_root: "data/video_frames_ctp_v1"
 
 thresholds:
   confidence: 0.5
@@ -22,10 +29,10 @@ system:
   predictor:
     target: core.plugins.pytorch_classifier:PyTorchMobileNetV3Classifier
     params:
-      checkpoint_path: experiments/mobilenetv3_albu_weather/best_model_quantized.pth
-      config_path: experiments/mobilenetv3_albu_weather/config.yaml
+      checkpoint_path: experiments/mobilenetv3_video_frames/best_model.pth
+      config_path: experiments/mobilenetv3_video_frames/config.yaml
       device: auto
-      model_name: MobileNetV3 + Weather Aug
+      model_name: MobileNetV3 Video Frames
 
   pose_overlay:
     target: core.plugins.mediapipe_pose_overlay:MediaPipePoseOverlay
@@ -57,3 +64,18 @@ system:
         TURN_RIGHT: Allow right turn
         WAIT_LEFT_TURN: Wait for left turn
         UNKNOWN: Confidence too low, degrade to safe state
+
+  police_detector:
+    target: core.plugins.mediapipe_police_detector:MediaPipePosePoliceDetector
+    params:
+      model_path: weights/pose_landmarker_lite.task
+      num_poses: 2
+      padding_ratio: 0.25
+      min_score: 0.45
+
+  tracker:
+    target: core.plugins.single_iou_tracker:SingleIouTracker
+    params:
+      iou_threshold: 0.2
+      max_lost: 15
+      smooth: 0.65

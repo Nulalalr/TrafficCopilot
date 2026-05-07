@@ -208,6 +208,44 @@
       <p id="camera-error" class="reason-text" style="margin-top: 14px;">摄像头未启动。</p>
     </section>
 
+    <section class="panel bottom-panel" id="video-panel">
+      <div class="panel-head">
+        <h2>视频上传识别</h2>
+      </div>
+      <form id="video-upload-form">
+        <label class="upload-box" for="video-input">
+          <input id="video-input" name="file" type="file" accept="video/*">
+          <span>点击上传一段交警手势视频</span>
+          <small>后端将自动执行检测、跟踪、手势识别与时序意图分析，并返回处理后视频</small>
+        </label>
+      </form>
+      <div class="preview-wrap">
+        <video id="video-output" controls playsinline style="display:none;"></video>
+      </div>
+      <div class="result-grid">
+        <div class="result-card accent">
+          <span>最终稳定指令</span>
+          <strong id="video-command">等待输入</strong>
+          <small id="video-command-desc">上传视频后显示</small>
+        </div>
+        <div class="result-card">
+          <span>最后识别类别</span>
+          <strong id="video-label">-</strong>
+          <small id="video-confidence">置信度 -</small>
+        </div>
+        <div class="result-card">
+          <span>处理统计</span>
+          <strong id="video-state">IDLE</strong>
+          <small id="video-latency">耗时 -</small>
+        </div>
+      </div>
+      <div class="window-card">
+        <span>输出文件</span>
+        <div id="video-links" class="window-tags"></div>
+        <p id="video-reason" class="reason-text">上传视频后，页面将显示处理后视频和识别结果。</p>
+      </div>
+    </section>
+
     <section class="panel bottom-panel">
       <div class="panel-head">
         <h2>当前说明</h2>

@@ -68,6 +68,16 @@ const cameraConfidence = document.getElementById("camera-confidence");
 const cameraState = document.getElementById("camera-state");
 const cameraStatus = document.getElementById("camera-status");
 const cameraError = document.getElementById("camera-error");
+const videoInput = document.getElementById("video-input");
+const videoOutput = document.getElementById("video-output");
+const videoCommand = document.getElementById("video-command");
+const videoCommandDesc = document.getElementById("video-command-desc");
+const videoLabel = document.getElementById("video-label");
+const videoConfidence = document.getElementById("video-confidence");
+const videoState = document.getElementById("video-state");
+const videoLatency = document.getElementById("video-latency");
+const videoReason = document.getElementById("video-reason");
+const videoLinks = document.getElementById("video-links");
 let cameraCaptureTimer = null;
 let cameraMediaStream = null;
 let cameraBusy = false;
@@ -607,6 +617,76 @@ async function predictUploadedFile(file) {
   applyPrediction("upload", payload);
 }
 
+async function predictUploadedVideo(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (videoCommand) videoCommand.textContent = "处理中";
+  if (videoCommandDesc) videoCommandDesc.textContent = "正在执行视频检测与识别";
+  if (videoLabel) videoLabel.textContent = "-";
+  if (videoConfidence) videoConfidence.textContent = "置信度 -";
+  if (videoState) videoState.textContent = "RUNNING";
+  if (videoLatency) videoLatency.textContent = "耗时处理中";
+  if (videoReason) videoReason.textContent = "后端正在逐帧处理视频。";
+  if (videoLinks) videoLinks.innerHTML = "";
+
+  const response = await fetch("/api/predict/video-upload", {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error || `HTTP ${response.status}`);
+  }
+
+  const lastPrediction = payload.last_prediction || {};
+  const lastIntent = payload.last_intent || {};
+  const result = payload.result || {};
+
+  if (videoCommand) videoCommand.textContent = lastIntent.command || "UNKNOWN";
+  if (videoCommandDesc) videoCommandDesc.textContent = lastIntent.description || "视频处理完成";
+  if (videoLabel) videoLabel.textContent = lastPrediction.label || "-";
+  if (videoConfidence) {
+    videoConfidence.textContent =
+      typeof lastPrediction.confidence === "number"
+        ? `置信度 ${Math.round(lastPrediction.confidence * 100)}%`
+        : "置信度 -";
+  }
+  if (videoState) videoState.textContent = `${result.frames_processed || 0} 帧`;
+  if (videoLatency) videoLatency.textContent = `耗时 ${result.elapsed_sec || "-"} s / ${result.effective_fps || "-"} FPS`;
+  if (videoReason) {
+    videoReason.textContent = `处理完成：读取 ${result.frames_read || 0} 帧，输出事件 ${payload.event_count || 0} 条。`;
+  }
+
+  if (payload.output_video_url && videoOutput) {
+    videoOutput.src = payload.output_video_url;
+    videoOutput.style.display = "block";
+    videoOutput.load();
+  }
+
+  if (videoLinks) {
+    videoLinks.innerHTML = "";
+    if (payload.output_video_url) {
+      const videoLink = document.createElement("a");
+      videoLink.className = "tag";
+      videoLink.href = payload.output_video_url;
+      videoLink.target = "_blank";
+      videoLink.rel = "noopener noreferrer";
+      videoLink.textContent = "处理后视频";
+      videoLinks.appendChild(videoLink);
+    }
+    if (payload.output_jsonl_url) {
+      const jsonlLink = document.createElement("a");
+      jsonlLink.className = "tag";
+      jsonlLink.href = payload.output_jsonl_url;
+      jsonlLink.target = "_blank";
+      jsonlLink.rel = "noopener noreferrer";
+      jsonlLink.textContent = "事件日志";
+      videoLinks.appendChild(jsonlLink);
+    }
+  }
+}
+
 async function playCurrentFrame() {
   if (!currentScenario || currentFrameIndex >= currentScenario.frames.length) {
     stopPlayback();
@@ -697,6 +777,24 @@ uploadInput.addEventListener("change", async (event) => {
   uploadPreview.style.display = "block";
   await predictUploadedFile(file);
 });
+
+if (videoInput) {
+  videoInput.addEventListener("change", async (event) => {
+    const [file] = event.target.files;
+    if (!file) {
+      return;
+    }
+    try {
+      await predictUploadedVideo(file);
+    } catch (error) {
+      if (videoCommand) videoCommand.textContent = "处理失败";
+      if (videoCommandDesc) videoCommandDesc.textContent = "视频识别未完成";
+      if (videoState) videoState.textContent = "ERROR";
+      if (videoLatency) videoLatency.textContent = "耗时 -";
+      if (videoReason) videoReason.textContent = error?.message || "unknown error";
+    }
+  });
+}
 
 document.getElementById("reset-upload-session").addEventListener("click", async () => {
   uploadSessionId = makeUuid();

@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.system.factory import build_system, load_yaml
+from core.video.factory import build_video_pipeline
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "web.yaml"
 
@@ -141,6 +142,15 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         web_cfg = cfg.get("web") or {}
         camera_path = web_cfg.get("camera_config_path") or "config/camera.yaml"
         p = Path(str(camera_path))
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return load_yaml(p)
+
+    def _load_video_config() -> dict[str, Any]:
+        cfg = app.config["TRAFFICCOPILOT_CONFIG"]
+        web_cfg = cfg.get("web") or {}
+        video_path = web_cfg.get("video_config_path") or "config/video.yaml"
+        p = Path(str(video_path))
         if not p.is_absolute():
             p = PROJECT_ROOT / p
         return load_yaml(p)
@@ -396,6 +406,14 @@ def create_app(config_path: str | Path | None = None) -> Flask:
             return jsonify({"error": "image not found"}), 404
         return send_file(image_path)
 
+    @app.route("/artifacts/<path:relative_path>")
+    def artifact_file(relative_path: str):
+        outputs_root = (PROJECT_ROOT / "outputs").resolve()
+        target_path = (outputs_root / relative_path).resolve()
+        if not target_path.exists() or (target_path != outputs_root and outputs_root not in target_path.parents):
+            return jsonify({"error": "artifact not found"}), 404
+        return send_file(target_path)
+
     @app.route("/api/session/reset", methods=["POST"])
     def reset_session():
         payload = request.get_json(silent=True) or {}
@@ -575,6 +593,86 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         image = image.convert("RGB")
         out = _predict_temporal_no_pose(system, image, session_id=session_id)
         return jsonify(_serialize_prediction(out))
+
+    @app.route("/api/predict/video-upload", methods=["POST"])
+    def predict_video_upload():
+        if "file" not in request.files:
+            return jsonify({"error": "no video uploaded"}), 400
+
+        uploaded = request.files["file"]
+        if not uploaded.filename:
+            return jsonify({"error": "empty filename"}), 400
+
+        run_id = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+        work_dir = PROJECT_ROOT / "outputs" / "web_video_runs" / run_id
+        input_dir = work_dir / "input"
+        output_dir = work_dir / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        suffix = Path(uploaded.filename).suffix or ".mp4"
+        input_path = input_dir / f"upload{suffix}"
+        uploaded.save(input_path)
+
+        try:
+            video_cfg = _load_video_config()
+            video_cfg = dict(video_cfg)
+            video_section = dict(video_cfg.get("video") or {})
+            video_section["input_path"] = str(input_path)
+            video_section["output_dir"] = str(output_dir)
+            video_section["output_video_name"] = "result.mp4"
+            video_section["output_jsonl_name"] = "events.jsonl"
+            video_section["save_video"] = True
+            video_section["save_jsonl"] = True
+            video_cfg["video"] = video_section
+
+            pipeline = build_video_pipeline(video_cfg, project_root=PROJECT_ROOT)
+            result = pipeline.run()
+        except Exception as exc:
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+        last_prediction = None
+        last_intent = None
+        event_count = 0
+        event_path = Path(result.get("output_jsonl") or "")
+        if event_path.exists():
+            with open(event_path, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    event_count += 1
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("prediction"):
+                        last_prediction = event.get("prediction")
+                    if event.get("intent"):
+                        last_intent = event.get("intent")
+
+        output_video = Path(result["output_video"]) if result.get("output_video") else None
+        output_jsonl = Path(result["output_jsonl"]) if result.get("output_jsonl") else None
+        outputs_root = (PROJECT_ROOT / "outputs").resolve()
+        output_video_url = None
+        output_jsonl_url = None
+        if output_video and output_video.exists():
+            output_video_url = "/artifacts/" + output_video.resolve().relative_to(outputs_root).as_posix()
+        if output_jsonl and output_jsonl.exists():
+            output_jsonl_url = "/artifacts/" + output_jsonl.resolve().relative_to(outputs_root).as_posix()
+
+        return jsonify(
+            {
+                "run_id": run_id,
+                "model_name": ((app.config.get("TRAFFICCOPILOT_CONFIG") or {}).get("system") or {}).get("predictor", {}).get("params", {}).get("model_name", ""),
+                "result": result,
+                "event_count": event_count,
+                "last_prediction": last_prediction,
+                "last_intent": last_intent,
+                "output_video_url": output_video_url,
+                "output_jsonl_url": output_jsonl_url,
+            }
+        )
 
     @app.route("/api/demo-sequences")
     def demo_sequences():
