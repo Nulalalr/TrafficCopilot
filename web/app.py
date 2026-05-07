@@ -7,11 +7,12 @@ import os
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock
+from threading import Condition, Event, Lock, Thread
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, Response, jsonify, render_template, request, send_file
 from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +75,8 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         static_folder=str(PROJECT_ROOT / "web" / "static"),
         static_url_path="/static",
     )
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
     app.config["TRAFFICCOPILOT_CONFIG_PATH"] = str(config_path)
     app.config["TRAFFICCOPILOT_CONFIG"] = config
@@ -87,9 +90,44 @@ def create_app(config_path: str | Path | None = None) -> Flask:
     app.config["EVAL_CACHE"] = {}
     app.config["EVAL_CACHE_LOCK"] = Lock()
 
+    @dataclass
+    class _CameraRuntime:
+        running: bool
+        stop_event: Event
+        frame_cond: Condition
+        latest_jpeg: bytes | None
+        last_event: dict[str, Any] | None
+        error: str
+        fps_in: float | None
+        width: int | None
+        height: int | None
+        processed_frames: int
+
+    camera_lock = Lock()
+    camera_runtime = _CameraRuntime(
+        running=False,
+        stop_event=Event(),
+        frame_cond=Condition(),
+        latest_jpeg=None,
+        last_event=None,
+        error="",
+        fps_in=None,
+        width=None,
+        height=None,
+        processed_frames=0,
+    )
+    app.config["CAMERA_RUNTIME"] = camera_runtime
+
     intent_params = ((config.get("system") or {}).get("intent_engine") or {}).get("params") or {}
     app.config["LABEL_TO_COMMAND"] = dict(intent_params.get("label_to_command") or {})
     app.config["COMMAND_DESCRIPTIONS"] = dict(intent_params.get("command_descriptions") or {})
+
+    @app.after_request
+    def _no_cache(resp):
+        path = request.path or ""
+        if path == "/" or path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
 
     def _system_or_error():
         system = app.config.get("TRAFFICCOPILOT_SYSTEM")
@@ -97,6 +135,210 @@ def create_app(config_path: str | Path | None = None) -> Flask:
             err = app.config.get("TRAFFICCOPILOT_SYSTEM_ERROR") or "system unavailable"
             return None, err
         return system, ""
+
+    def _load_camera_config() -> dict[str, Any]:
+        cfg = app.config["TRAFFICCOPILOT_CONFIG"]
+        web_cfg = cfg.get("web") or {}
+        camera_path = web_cfg.get("camera_config_path") or "config/camera.yaml"
+        p = Path(str(camera_path))
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return load_yaml(p)
+
+    def _start_camera_if_needed() -> None:
+        with camera_lock:
+            if camera_runtime.running:
+                return
+            camera_runtime.stop_event.clear()
+            camera_runtime.error = ""
+            camera_runtime.latest_jpeg = None
+            camera_runtime.last_event = None
+            camera_runtime.fps_in = None
+            camera_runtime.width = None
+            camera_runtime.height = None
+            camera_runtime.processed_frames = 0
+
+            def _loop():
+                try:
+                    system, system_error = _system_or_error()
+                    if system is None:
+                        raise RuntimeError(system_error)
+
+                    cam_cfg = _load_camera_config()
+                    video_cfg = dict(cam_cfg.get("video") or {})
+                    thresholds = dict(cam_cfg.get("thresholds") or {})
+
+                    from core.system.registry import ComponentSpec, build_component
+
+                    detector_spec = ComponentSpec.from_obj(cam_cfg["system"]["police_detector"])
+                    detector = build_component(detector_spec, project_root=PROJECT_ROOT)
+                    tracker_spec = ComponentSpec.from_obj(cam_cfg["system"]["tracker"])
+                    tracker = build_component(tracker_spec)
+                    tracker.reset()
+                    system.reset_session("server_camera")
+
+                    import cv2
+
+                    camera_index = int(video_cfg.get("camera_index", 0))
+                    backend = video_cfg.get("camera_backend")
+                    if backend not in (None, "", "null"):
+                        cap = cv2.VideoCapture(camera_index, int(backend))
+                    else:
+                        cap = cv2.VideoCapture(camera_index)
+                    if not cap.isOpened():
+                        raise RuntimeError(f"Failed to open camera: index={camera_index}")
+
+                    width = video_cfg.get("camera_width")
+                    height = video_cfg.get("camera_height")
+                    fps_target = video_cfg.get("camera_fps")
+                    if width not in (None, "", "null"):
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(width))
+                    if height not in (None, "", "null"):
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(height))
+                    if fps_target not in (None, "", "null"):
+                        cap.set(cv2.CAP_PROP_FPS, float(fps_target))
+
+                    fps_in = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+                    w_in = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                    h_in = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+
+                    sample_every = int(video_cfg.get("sample_every", 1))
+                    draw = bool(video_cfg.get("draw_overlay", True))
+                    quality = int(video_cfg.get("jpeg_quality", 82))
+                    max_fps = video_cfg.get("max_fps")
+                    max_fps = float(max_fps) if max_fps not in (None, "", "null") else None
+
+                    unknown_conf = float(thresholds.get("confidence", 0.5))
+                    unknown_margin = float(thresholds.get("margin", 0.08))
+                    system.predictor.unknown_confidence_threshold = unknown_conf
+                    system.predictor.unknown_margin_threshold = unknown_margin
+
+                    last_tick = time.perf_counter()
+                    frame_idx = 0
+
+                    with camera_lock:
+                        camera_runtime.fps_in = fps_in
+                        camera_runtime.width = w_in
+                        camera_runtime.height = h_in
+
+                    while not camera_runtime.stop_event.is_set():
+                        if max_fps is not None:
+                            now = time.perf_counter()
+                            dt = now - last_tick
+                            min_dt = 1.0 / max(1e-6, max_fps)
+                            if dt < min_dt:
+                                time.sleep(max(0.0, min_dt - dt))
+                            last_tick = time.perf_counter()
+
+                        ok, frame = cap.read()
+                        if not ok or frame is None:
+                            break
+
+                        frame_idx += 1
+                        ts_ms = int(round(time.time() * 1000.0))
+
+                        event: dict[str, Any] = {
+                            "frame_index": frame_idx,
+                            "timestamp_ms": ts_ms,
+                            "detections": [],
+                            "tracks": [],
+                            "prediction": None,
+                            "intent": None,
+                        }
+
+                        if sample_every <= 1 or (frame_idx - 1) % sample_every == 0:
+                            detections = detector.detect(frame, timestamp_ms=ts_ms)
+                            tracks = tracker.update(detections)
+                            event["detections"] = [{"bbox": list(d.bbox.as_xyxy()), "score": float(d.score), "meta": d.meta or {}} for d in detections]
+                            event["tracks"] = [
+                                {"track_id": int(t.track_id), "bbox": list(t.bbox.as_xyxy()), "score": float(t.score), "age": int(t.age), "lost": int(t.lost)}
+                                for t in tracks
+                            ]
+
+                            if tracks:
+                                t0 = tracks[0]
+                                x1, y1, x2, y2 = t0.bbox.clip(width=frame.shape[1], height=frame.shape[0]).as_xyxy()
+                                roi = frame[y1:y2, x1:x2]
+                                if roi.size > 0:
+                                    pil = Image.fromarray(roi[:, :, ::-1]).convert("RGB")
+                                    out = _predict_temporal_no_pose(system, pil, session_id="server_camera")
+                                    event["prediction"] = out.get("prediction")
+                                    event["intent"] = out.get("intent")
+
+                                    if draw:
+                                        cv2.rectangle(frame, (x1, y1), (x2, y2), (80, 200, 120), 2)
+                                        cv2.putText(
+                                            frame,
+                                            f"Police#{int(t0.track_id)}",
+                                            (x1, max(18, y1 - 8)),
+                                            cv2.FONT_HERSHEY_SIMPLEX,
+                                            0.6,
+                                            (80, 200, 120),
+                                            2,
+                                            cv2.LINE_AA,
+                                        )
+                                        pred_obj = event.get("prediction") or {}
+                                        label = str(pred_obj.get("label", ""))
+                                        conf = float(pred_obj.get("confidence", 0.0) or 0.0)
+                                        intent_txt = ""
+                                        if isinstance(event.get("intent"), dict):
+                                            cmd = event["intent"].get("command")
+                                            state = event["intent"].get("state")
+                                            if cmd:
+                                                intent_txt = f" | {cmd}"
+                                            if state:
+                                                intent_txt = f"{intent_txt} | {state}"
+                                        txt = f"{label} ({conf:.2f}){intent_txt}"
+                                        cv2.putText(frame, txt, (20, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2, cv2.LINE_AA)
+                                        cv2.putText(frame, txt, (20, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (30, 30, 30), 1, cv2.LINE_AA)
+
+                        ok_enc, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), max(40, min(95, quality))])
+                        if ok_enc:
+                            jpeg = bytes(buf)
+                            with camera_runtime.frame_cond:
+                                camera_runtime.latest_jpeg = jpeg
+                                camera_runtime.last_event = event
+                                camera_runtime.processed_frames += 1
+                                camera_runtime.frame_cond.notify_all()
+
+                    cap.release()
+
+                except Exception as exc:
+                    with camera_runtime.frame_cond:
+                        camera_runtime.error = f"{type(exc).__name__}: {exc}"
+                        camera_runtime.frame_cond.notify_all()
+                finally:
+                    with camera_lock:
+                        camera_runtime.running = False
+
+            camera_runtime.running = True
+            thread = Thread(target=_loop, daemon=True)
+            thread.start()
+
+    def _stop_camera() -> None:
+        with camera_lock:
+            if not camera_runtime.running:
+                return
+            camera_runtime.stop_event.set()
+
+    def _predict_temporal_no_pose(system, image: Image.Image, session_id: str | None) -> dict[str, Any]:
+        start = time.perf_counter()
+        prediction = system.predictor.predict(image)
+        prediction_payload = prediction.as_dict()
+        engine = system._get_engine(session_id) if session_id else None
+        if engine is not None:
+            intent = engine.update(prediction_payload)
+        else:
+            intent = {"command": "UNKNOWN", "state": "DISABLED", "stability": prediction_payload.get("confidence", 0.0)}
+        latency_ms = (time.perf_counter() - start) * 1000
+        return {
+            "session_id": session_id,
+            "prediction": prediction_payload,
+            "intent": intent,
+            "status": "UNKNOWN" if prediction_payload.get("is_unknown") else "OK",
+            "latency_ms": round(float(latency_ms), 2),
+            "timestamp": int(time.time() * 1000),
+        }
 
     @app.route("/")
     def index():
@@ -311,6 +553,28 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         }
         return jsonify(_serialize_prediction(payload))
 
+    @app.route("/api/predict/camera-frame", methods=["POST"])
+    def predict_camera_frame():
+        session_id = request.form.get("session_id") or str(uuid.uuid4())
+
+        if "file" in request.files:
+            image = Image.open(request.files["file"].stream)
+        else:
+            image_data = request.form.get("image_data", "")
+            if "," in image_data:
+                image_data = image_data.split(",", 1)[1]
+            if not image_data:
+                return jsonify({"error": "no image uploaded"}), 400
+            image = Image.open(io.BytesIO(base64.b64decode(image_data)))
+
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
+
+        image = image.convert("RGB")
+        out = _predict_temporal_no_pose(system, image, session_id=session_id)
+        return jsonify(_serialize_prediction(out))
+
     @app.route("/api/demo-sequences")
     def demo_sequences():
         system, system_error = _system_or_error()
@@ -458,6 +722,53 @@ def create_app(config_path: str | Path | None = None) -> Flask:
             )
 
         return jsonify({"error": "Invalid format. Use json or csv."}), 400
+
+    @app.route("/api/camera/start", methods=["POST"])
+    def camera_start():
+        _start_camera_if_needed()
+        return jsonify({"running": bool(camera_runtime.running), "error": camera_runtime.error})
+
+    @app.route("/api/camera/stop", methods=["POST"])
+    def camera_stop():
+        _stop_camera()
+        return jsonify({"running": bool(camera_runtime.running)})
+
+    @app.route("/api/camera/status")
+    def camera_status():
+        with camera_runtime.frame_cond:
+            payload = {
+                "running": bool(camera_runtime.running),
+                "error": camera_runtime.error,
+                "fps_in": camera_runtime.fps_in,
+                "width": camera_runtime.width,
+                "height": camera_runtime.height,
+                "processed_frames": camera_runtime.processed_frames,
+                "last_event": camera_runtime.last_event,
+            }
+        return jsonify(payload)
+
+    @app.route("/camera/stream")
+    def camera_stream():
+        _start_camera_if_needed()
+
+        def _gen():
+            boundary = b"--frame\r\n"
+            while True:
+                with camera_runtime.frame_cond:
+                    camera_runtime.frame_cond.wait(timeout=2.0)
+                    jpeg = camera_runtime.latest_jpeg
+                    err = camera_runtime.error
+                    running = camera_runtime.running
+                if err:
+                    break
+                if jpeg is None:
+                    if not running:
+                        break
+                    continue
+                header = b"Content-Type: image/jpeg\r\nContent-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n\r\n"
+                yield boundary + header + jpeg + b"\r\n"
+
+        return Response(_gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
     return app
 

@@ -1,13 +1,20 @@
-web:
-  host: 127.0.0.1
-  port: 5000
-  debug: false
-  metrics_path: experiments/mobilenetv3_albu_weather/metrics.json
-  eval_cache_ttl_sec: 600
-  camera_config_path: config/camera.yaml
+video:
+  camera_index: 0
+  camera_backend: null
+  camera_width: 1280
+  camera_height: 720
+  camera_fps: null
+  sample_every: 1
+  max_frames: null
+  draw_overlay: true
+  display: true
+  window_name: "TrafficCopilot Camera"
+  output_dir: outputs/camera_runs
+  save_video: false
+  save_jsonl: false
 
 data:
-  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
+  dataset_root: demo/traffic gestures.v1i.multiclass
 
 thresholds:
   confidence: 0.5
@@ -25,11 +32,6 @@ system:
       config_path: experiments/mobilenetv3_albu_weather/config.yaml
       device: auto
       model_name: MobileNetV3 + Weather Aug
-
-  pose_overlay:
-    target: core.plugins.mediapipe_pose_overlay:MediaPipePoseOverlay
-    params:
-      model_path: weights/pose_landmarker_lite.task
 
   intent_engine:
     target: core.plugins.temporal_intent:TemporalIntentEngine
@@ -56,3 +58,19 @@ system:
         TURN_RIGHT: Allow right turn
         WAIT_LEFT_TURN: Wait for left turn
         UNKNOWN: Confidence too low, degrade to safe state
+
+  police_detector:
+    target: core.plugins.mediapipe_police_detector:MediaPipePosePoliceDetector
+    params:
+      model_path: weights/pose_landmarker_lite.task
+      num_poses: 2
+      padding_ratio: 0.25
+      min_score: 0.45
+
+  tracker:
+    target: core.plugins.single_iou_tracker:SingleIouTracker
+    params:
+      iou_threshold: 0.2
+      max_lost: 15
+      smooth: 0.65
+

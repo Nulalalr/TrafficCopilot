@@ -1,8 +1,18 @@
 const bootstrap = window.__BOOTSTRAP__ || {};
 const demoSequences = bootstrap.demoSequences || [];
 
-let uploadSessionId = crypto.randomUUID();
-let sequenceSessionId = crypto.randomUUID();
+function makeUuid() {
+  try {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch (error) {}
+  const s = `${Date.now()}-${Math.random()}-${Math.random()}`;
+  return s.replace(/[^a-zA-Z0-9]+/g, "");
+}
+
+let uploadSessionId = makeUuid();
+let sequenceSessionId = makeUuid();
 let currentScenario = demoSequences[0] || null;
 let currentFrameIndex = 0;
 let playTimer = null;
@@ -47,6 +57,22 @@ const confusionMatrix = document.getElementById("confusion-matrix");
 const perClassTable = document.getElementById("per-class-table");
 const topConfusions = document.getElementById("top-confusions");
 const hardClasses = document.getElementById("hard-classes");
+const cameraStartButton = document.getElementById("camera-start");
+const cameraStopButton = document.getElementById("camera-stop");
+const cameraVideo = document.getElementById("camera-video");
+const cameraCanvas = document.getElementById("camera-canvas");
+const cameraCommand = document.getElementById("camera-command");
+const cameraCommandDesc = document.getElementById("camera-command-desc");
+const cameraLabel = document.getElementById("camera-label");
+const cameraConfidence = document.getElementById("camera-confidence");
+const cameraState = document.getElementById("camera-state");
+const cameraStatus = document.getElementById("camera-status");
+const cameraError = document.getElementById("camera-error");
+let cameraCaptureTimer = null;
+let cameraMediaStream = null;
+let cameraBusy = false;
+let cameraSessionId = makeUuid();
+const CAMERA_CAPTURE_INTERVAL_MS = 250;
 
 function renderWindow(container, items) {
   container.innerHTML = "";
@@ -60,6 +86,167 @@ function renderWindow(container, items) {
     node.textContent = `${item.command} | ${Math.round(item.confidence * 100)}%`;
     container.appendChild(node);
   });
+}
+
+function setCameraUiState(running) {
+  if (cameraStartButton) {
+    cameraStartButton.disabled = !!running;
+  }
+  if (cameraStopButton) {
+    cameraStopButton.disabled = !running;
+  }
+}
+
+function updateCameraPrediction(payload) {
+  const pred = payload?.prediction || null;
+  const intent = payload?.intent || null;
+  const latency = payload?.latency_ms;
+
+  if (cameraStatus) {
+    cameraStatus.textContent = typeof latency === "number" ? `Latency ${latency} ms` : "-";
+  }
+
+  if (pred && cameraLabel && cameraConfidence) {
+    cameraLabel.textContent = pred.label || "-";
+    cameraConfidence.textContent = `置信度 ${Math.round((pred.confidence || 0) * 100)}%`;
+  }
+
+  if (intent && cameraCommand && cameraState) {
+    cameraCommand.textContent = intent.command || "UNKNOWN";
+    cameraState.textContent = intent.state || "RUNNING";
+    if (cameraCommandDesc) {
+      cameraCommandDesc.textContent = intent.description || "-";
+    }
+  }
+}
+
+function stopCameraTracks() {
+  try {
+    cameraMediaStream?.getTracks?.().forEach((t) => t.stop());
+  } catch (error) {}
+  cameraMediaStream = null;
+  if (cameraVideo) {
+    cameraVideo.srcObject = null;
+  }
+}
+
+async function captureAndPredict() {
+  if (cameraBusy || !cameraVideo || !cameraCanvas) {
+    return;
+  }
+  if (!cameraMediaStream) {
+    return;
+  }
+  if (cameraVideo.readyState < 2) {
+    return;
+  }
+  cameraBusy = true;
+  try {
+    const vw = cameraVideo.videoWidth || 0;
+    const vh = cameraVideo.videoHeight || 0;
+    if (!vw || !vh) {
+      return;
+    }
+
+    const maxW = 640;
+    const scale = Math.min(1, maxW / vw);
+    const tw = Math.max(1, Math.round(vw * scale));
+    const th = Math.max(1, Math.round(vh * scale));
+    cameraCanvas.width = tw;
+    cameraCanvas.height = th;
+    const ctx = cameraCanvas.getContext("2d", { willReadFrequently: false });
+    if (!ctx) {
+      return;
+    }
+    ctx.drawImage(cameraVideo, 0, 0, tw, th);
+
+    const blob = await new Promise((resolve) => {
+      cameraCanvas.toBlob((b) => resolve(b), "image/jpeg", 0.75);
+    });
+    if (!blob) {
+      return;
+    }
+
+    const form = new FormData();
+    form.append("session_id", cameraSessionId);
+    form.append("file", blob, "frame.jpg");
+
+    const res = await fetch("/api/predict/camera-frame", { method: "POST", body: form });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(payload?.error || `HTTP ${res.status}`);
+    }
+    if (cameraError) {
+      cameraError.textContent = "摄像头运行中。";
+    }
+    updateCameraPrediction(payload);
+  } catch (error) {
+    if (cameraError) {
+      cameraError.textContent = `摄像头错误：${error?.message || "unknown"}`;
+    }
+  } finally {
+    cameraBusy = false;
+  }
+}
+
+async function startCamera() {
+  if (!cameraVideo) {
+    if (cameraError) {
+      cameraError.textContent = "摄像头组件未加载：请刷新页面（Ctrl+F5）或重启后端服务。";
+    }
+    return;
+  }
+  if (!window.isSecureContext) {
+    setCameraUiState(false);
+    if (cameraError) {
+      cameraError.textContent = "摄像头需要安全上下文：请用 http://localhost:5000 或 https 访问页面。";
+    }
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setCameraUiState(false);
+    if (cameraError) {
+      cameraError.textContent = "浏览器不支持摄像头 API（navigator.mediaDevices.getUserMedia 不可用）。";
+    }
+    return;
+  }
+  try {
+    cameraSessionId = makeUuid();
+    await resetSession(cameraSessionId);
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false,
+    });
+    cameraMediaStream = stream;
+    cameraVideo.srcObject = stream;
+    await cameraVideo.play();
+    setCameraUiState(true);
+    if (cameraError) {
+      cameraError.textContent = "摄像头运行中。";
+    }
+    if (cameraCaptureTimer) {
+      clearInterval(cameraCaptureTimer);
+    }
+    cameraCaptureTimer = setInterval(captureAndPredict, CAMERA_CAPTURE_INTERVAL_MS);
+  } catch (error) {
+    setCameraUiState(false);
+    stopCameraTracks();
+    if (cameraError) {
+      cameraError.textContent = `摄像头错误：${error?.message || "getUserMedia failed"}`;
+    }
+  }
+}
+
+async function stopCamera() {
+  if (cameraCaptureTimer) {
+    clearInterval(cameraCaptureTimer);
+    cameraCaptureTimer = null;
+  }
+  stopCameraTracks();
+  setCameraUiState(false);
+  if (cameraError) {
+    cameraError.textContent = "摄像头未启动。";
+  }
 }
 
 function applyPrediction(prefix, payload) {
@@ -123,6 +310,20 @@ async function loadModelInfo() {
       modelBadge.textContent = "Current model: unavailable";
     }
   }
+}
+
+if (cameraStartButton) {
+  cameraStartButton.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    startCamera();
+  });
+}
+
+if (cameraStopButton) {
+  cameraStopButton.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    stopCamera();
+  });
 }
 
 function renderModules(payload) {
@@ -469,7 +670,7 @@ function bindScenarioButtons() {
       button.classList.add("active");
       currentScenario = demoSequences.find((item) => item.id === button.dataset.scenarioId);
       currentFrameIndex = 0;
-      sequenceSessionId = crypto.randomUUID();
+      sequenceSessionId = makeUuid();
       await resetSession(sequenceSessionId);
       stopPlayback();
       renderTimeline();
@@ -498,7 +699,7 @@ uploadInput.addEventListener("change", async (event) => {
 });
 
 document.getElementById("reset-upload-session").addEventListener("click", async () => {
-  uploadSessionId = crypto.randomUUID();
+  uploadSessionId = makeUuid();
   await resetSession(uploadSessionId);
   uploadCommand.textContent = "Waiting";
   uploadCommandDesc.textContent = "Upload an image to run inference";
@@ -531,6 +732,7 @@ bindScenarioButtons();
 renderTimeline();
 loadModelInfo();
 loadModules();
+setCameraUiState(false);
 
 if (currentScenario?.frames?.[0]) {
   const firstFrame = currentScenario.frames[0];
