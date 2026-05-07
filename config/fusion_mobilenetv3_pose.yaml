@@ -7,7 +7,7 @@ model:
   pose_dropout: 0.1
 
 data:
-  dataset_root: demo/traffic gestures.v1i.multiclass
+  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
   pose_root: output/pose_keypoints
   image_size: 224
 

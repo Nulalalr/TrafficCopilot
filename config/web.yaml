@@ -6,7 +6,7 @@ web:
   eval_cache_ttl_sec: 600
 
 data:
-  dataset_root: demo/traffic gestures.v1i.multiclass
+  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
 
 thresholds:
   confidence: 0.5

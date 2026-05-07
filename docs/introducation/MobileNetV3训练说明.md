@@ -2,7 +2,7 @@
 
 ## 目标
 
-基于仓库内现有数据集 `demo/traffic gestures.v1i.multiclass`，训练一个 `MobileNetV3-Small` 手势分类基线模型。
+基于仓库内现有数据集 `data/raw/traffic gestures.v1i.multiclass`，训练一个 `MobileNetV3-Small` 手势分类基线模型。
 
 ## 新增文件
 

@@ -1,5 +1,5 @@
 video:
-  input_path: demo/assets/sample.mp4
+  input_path: ""
   output_dir: outputs/video_runs
   sample_every: 1
   max_frames: null
@@ -15,7 +15,7 @@ web:
   eval_cache_ttl_sec: 600
 
 data:
-  dataset_root: demo/traffic gestures.v1i.multiclass
+  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
 
 thresholds:
   confidence: 0.5
@@ -79,4 +79,3 @@ system:
       iou_threshold: 0.2
       max_lost: 15
       smooth: 0.65
-

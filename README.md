@@ -52,7 +52,7 @@ TrafficCopilot/
 │   ├── model/              # 骨干网络、注意力模块定义
 │   ├── utils/              # 数据增强、评估指标工具
 │   └── deploy/             # 模型轻量化与推理脚本
-├── demo/                   # 可视化演示程序 (Gradio)
+├── web/                    # Web 演示与 API 服务 (Flask)
 ├── docs/                   # 系统方案报告与PPT
 ├── scripts/                # 训练、测试、导出脚本
 ├── test_images/            # 独立测试图片集
@@ -72,13 +72,13 @@ cd TrafficCopilot
 pip install -r requirements.txt
 ```
 
-### 2. 运行 Demo (图片推理)
-我们提供了一个简易的 Gradio 交互界面，可上传交警图片并查看实时识别结果。
+### 2. 运行 Web (图片推理)
+我们提供了一个简易的 Web 交互界面，可上传交警图片并查看识别结果与时序意图输出。
 
 ```bash
-python demo/app.py
+python web/app.py
 ```
-打开浏览器访问 `http://127.0.0.1:7860`，上传图片即可体验。
+打开浏览器访问 `http://127.0.0.1:5000`，上传图片即可体验。
 
 ### 3. 批量测试与准确率评估
 ```bash

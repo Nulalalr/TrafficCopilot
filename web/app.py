@@ -70,8 +70,8 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
     app = Flask(
         __name__,
-        template_folder=str(PROJECT_ROOT / "demo" / "templates"),
-        static_folder=str(PROJECT_ROOT / "demo" / "static"),
+        template_folder=str(PROJECT_ROOT / "web" / "templates"),
+        static_folder=str(PROJECT_ROOT / "web" / "static"),
         static_url_path="/static",
     )
 
