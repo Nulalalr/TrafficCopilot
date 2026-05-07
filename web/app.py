@@ -77,7 +77,12 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
     app.config["TRAFFICCOPILOT_CONFIG_PATH"] = str(config_path)
     app.config["TRAFFICCOPILOT_CONFIG"] = config
-    app.config["TRAFFICCOPILOT_SYSTEM"] = build_system(config, PROJECT_ROOT)
+    try:
+        app.config["TRAFFICCOPILOT_SYSTEM"] = build_system(config, PROJECT_ROOT)
+        app.config["TRAFFICCOPILOT_SYSTEM_ERROR"] = ""
+    except Exception as exc:
+        app.config["TRAFFICCOPILOT_SYSTEM"] = None
+        app.config["TRAFFICCOPILOT_SYSTEM_ERROR"] = f"{type(exc).__name__}: {exc}"
     app.config["TRAFFICCOPILOT_ADMIN_TOKEN"] = os.getenv("TRAFFICCOPILOT_ADMIN_TOKEN", "")
     app.config["EVAL_CACHE"] = {}
     app.config["EVAL_CACHE_LOCK"] = Lock()
@@ -86,14 +91,27 @@ def create_app(config_path: str | Path | None = None) -> Flask:
     app.config["LABEL_TO_COMMAND"] = dict(intent_params.get("label_to_command") or {})
     app.config["COMMAND_DESCRIPTIONS"] = dict(intent_params.get("command_descriptions") or {})
 
+    def _system_or_error():
+        system = app.config.get("TRAFFICCOPILOT_SYSTEM")
+        if system is None:
+            err = app.config.get("TRAFFICCOPILOT_SYSTEM_ERROR") or "system unavailable"
+            return None, err
+        return system, ""
+
     @app.route("/")
     def index():
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
-        dataset = system.dataset
-        dataset_root = Path(dataset.dataset_root) if hasattr(dataset, "dataset_root") else None
-        samples_by_split = {k: dataset.samples(k) for k in ["train", "valid", "test"]}
-        train_samples = samples_by_split["train"]
-        class_names = dataset.class_names
+        system, system_error = _system_or_error()
+        if system is None:
+            dataset_root = None
+            samples_by_split = {k: [] for k in ["train", "valid", "test"]}
+            train_samples = []
+            class_names: list[str] = []
+        else:
+            dataset = system.dataset
+            dataset_root = Path(dataset.dataset_root) if hasattr(dataset, "dataset_root") else None
+            samples_by_split = {k: dataset.samples(k) for k in ["train", "valid", "test"]}
+            train_samples = samples_by_split["train"]
+            class_names = dataset.class_names
         raw_metrics = {}
         metrics_path = (config.get("web") or {}).get("metrics_path")
         if metrics_path:
@@ -119,11 +137,14 @@ def create_app(config_path: str | Path | None = None) -> Flask:
             classes=class_names,
             command_descriptions=app.config["COMMAND_DESCRIPTIONS"],
             demo_sequences=demo_sequences,
+            system_error=system_error,
         )
 
     @app.route("/dataset-image/<path:relative_path>")
     def dataset_image(relative_path: str):
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         dataset_root = Path(system.dataset.dataset_root) if hasattr(system.dataset, "dataset_root") else None
         if dataset_root is None:
             return jsonify({"error": "dataset root not available"}), 500
@@ -136,13 +157,17 @@ def create_app(config_path: str | Path | None = None) -> Flask:
     def reset_session():
         payload = request.get_json(silent=True) or {}
         session_id = payload.get("session_id") or str(uuid.uuid4())
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         system.reset_session(session_id)
         return jsonify({"session_id": session_id, "status": "reset"})
 
     @app.route("/api/model-info")
     def model_info():
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         raw_metrics = {}
         metrics_path = (config.get("web") or {}).get("metrics_path")
         if metrics_path:
@@ -164,6 +189,37 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         cfg = app.config["TRAFFICCOPILOT_CONFIG"]
         return jsonify({"system": cfg.get("system", {}), "thresholds": cfg.get("thresholds", {})})
 
+    @app.route("/api/debug/paths")
+    def debug_paths():
+        remote = request.remote_addr or ""
+        if remote not in {"127.0.0.1", "::1"}:
+            return jsonify({"error": "forbidden"}), 403
+        token = app.config.get("TRAFFICCOPILOT_ADMIN_TOKEN", "")
+        sent = request.headers.get("X-Admin-Token", "")
+        if token and sent != token:
+            return jsonify({"error": "forbidden"}), 403
+        static_folder = Path(app.static_folder) if app.static_folder else None
+        template_paths = []
+        loader = getattr(app, "jinja_loader", None)
+        searchpath = getattr(loader, "searchpath", None)
+        if isinstance(searchpath, list):
+            template_paths = [str(Path(p)) for p in searchpath]
+        rules = []
+        for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
+            rules.append({"rule": str(rule), "endpoint": rule.endpoint, "methods": sorted(m for m in rule.methods if m not in {"HEAD", "OPTIONS"})})
+        return jsonify(
+            {
+                "cwd": os.getcwd(),
+                "project_root": str(PROJECT_ROOT),
+                "static_url_path": app.static_url_path,
+                "static_folder": str(static_folder) if static_folder else None,
+                "static_style_exists": bool(static_folder and (static_folder / "style.css").exists()),
+                "static_app_exists": bool(static_folder and (static_folder / "app.js").exists()),
+                "template_searchpath": template_paths,
+                "routes": rules,
+            }
+        )
+
     @app.route("/api/admin/reload", methods=["POST"])
     def admin_reload():
         token = app.config.get("TRAFFICCOPILOT_ADMIN_TOKEN", "")
@@ -173,20 +229,28 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         cfg_path = Path(app.config["TRAFFICCOPILOT_CONFIG_PATH"])
         cfg = load_yaml(cfg_path)
         app.config["TRAFFICCOPILOT_CONFIG"] = cfg
-        app.config["TRAFFICCOPILOT_SYSTEM"] = build_system(cfg, PROJECT_ROOT)
+        try:
+            app.config["TRAFFICCOPILOT_SYSTEM"] = build_system(cfg, PROJECT_ROOT)
+            app.config["TRAFFICCOPILOT_SYSTEM_ERROR"] = ""
+        except Exception as exc:
+            app.config["TRAFFICCOPILOT_SYSTEM"] = None
+            app.config["TRAFFICCOPILOT_SYSTEM_ERROR"] = f"{type(exc).__name__}: {exc}"
         intent_params_local = ((cfg.get("system") or {}).get("intent_engine") or {}).get("params") or {}
         app.config["LABEL_TO_COMMAND"] = dict(intent_params_local.get("label_to_command") or {})
         app.config["COMMAND_DESCRIPTIONS"] = dict(intent_params_local.get("command_descriptions") or {})
         with app.config["EVAL_CACHE_LOCK"]:
             app.config["EVAL_CACHE"].clear()
-        return jsonify({"status": "reloaded"})
+        system, system_error = _system_or_error()
+        return jsonify({"status": "reloaded", "system_ready": system is not None, "system_error": system_error})
 
     @app.route("/api/predict/sample", methods=["POST"])
     def predict_sample():
         payload = request.get_json(force=True)
         session_id = payload.get("session_id") or str(uuid.uuid4())
         image_relative_path = payload["image"]
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         dataset_root = Path(system.dataset.dataset_root) if hasattr(system.dataset, "dataset_root") else None
         if dataset_root is None:
             return jsonify({"error": "dataset root not available"}), 500
@@ -217,7 +281,9 @@ def create_app(config_path: str | Path | None = None) -> Flask:
                 return jsonify({"error": "no image uploaded"}), 400
             image = Image.open(io.BytesIO(base64.b64decode(image_data)))
 
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         label_to_command = app.config["LABEL_TO_COMMAND"]
         command_descriptions = app.config["COMMAND_DESCRIPTIONS"]
 
@@ -247,7 +313,9 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
     @app.route("/api/demo-sequences")
     def demo_sequences():
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         dataset = system.dataset
         dataset_root = Path(dataset.dataset_root) if hasattr(dataset, "dataset_root") else None
         samples_by_split = {k: dataset.samples(k) for k in ["train", "valid", "test"]}
@@ -264,7 +332,9 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
     @app.route("/api/evaluate/<split>")
     def evaluate_split(split: str):
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         if split not in ["train", "valid", "test"]:
             return jsonify({"error": "Invalid split"}), 400
         if system.evaluator is None:
@@ -318,7 +388,9 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
     @app.route("/api/evaluate/<split>/export")
     def export_evaluation(split: str):
-        system = app.config["TRAFFICCOPILOT_SYSTEM"]
+        system, system_error = _system_or_error()
+        if system is None:
+            return jsonify({"error": system_error}), 500
         if split not in ["train", "valid", "test"]:
             return jsonify({"error": "Invalid split"}), 400
         if system.evaluator is None:

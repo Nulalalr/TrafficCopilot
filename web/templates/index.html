@@ -15,6 +15,11 @@
         <p class="hero-text">
           当前页面使用真实训练得到的 MobileNetV3 模型进行推理，并在上传图片时同时展示骨架提取可视化结果。
         </p>
+        {% if system_error %}
+        <p class="hero-text" style="color: var(--warn); font-weight: 700;">
+          后端尚未就绪：{{ system_error }}
+        </p>
+        {% endif %}
         <p class="hero-text" id="model-badge">Current model: loading...</p>
       </div>
       <div class="hero-stats">

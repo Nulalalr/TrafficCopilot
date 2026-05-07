@@ -110,6 +110,10 @@ async function resetSession(sessionId) {
 async function loadModelInfo() {
   try {
     const response = await fetch("/api/model-info");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.error || `HTTP ${response.status}`);
+    }
     const payload = await response.json();
     if (modelBadge) {
       modelBadge.textContent = `Current model: ${payload.model_name} | valid ${(payload.valid_accuracy * 100).toFixed(1)}% | test ${(payload.test_accuracy * 100).toFixed(1)}%`;
