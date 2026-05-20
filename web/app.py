@@ -118,6 +118,7 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         processed_frames=0,
     )
     app.config["CAMERA_RUNTIME"] = camera_runtime
+    app.config["BROWSER_CAMERA_DETECTOR"] = None
 
     intent_params = ((config.get("system") or {}).get("intent_engine") or {}).get("params") or {}
     app.config["LABEL_TO_COMMAND"] = dict(intent_params.get("label_to_command") or {})
@@ -145,6 +146,18 @@ def create_app(config_path: str | Path | None = None) -> Flask:
         if not p.is_absolute():
             p = PROJECT_ROOT / p
         return load_yaml(p)
+
+    def _get_browser_camera_detector():
+        det = app.config.get("BROWSER_CAMERA_DETECTOR")
+        if det is not None:
+            return det
+        cam_cfg = _load_camera_config()
+        from core.system.registry import ComponentSpec, build_component
+
+        detector_spec = ComponentSpec.from_obj(cam_cfg["system"]["police_detector"])
+        det = build_component(detector_spec, project_root=PROJECT_ROOT)
+        app.config["BROWSER_CAMERA_DETECTOR"] = det
+        return det
 
     def _load_video_config() -> dict[str, Any]:
         cfg = app.config["TRAFFICCOPILOT_CONFIG"]
@@ -360,10 +373,16 @@ def create_app(config_path: str | Path | None = None) -> Flask:
             class_names: list[str] = []
         else:
             dataset = system.dataset
-            dataset_root = Path(dataset.dataset_root) if hasattr(dataset, "dataset_root") else None
-            samples_by_split = {k: dataset.samples(k) for k in ["train", "valid", "test"]}
+            dataset_root = Path(dataset.dataset_root) if hasattr(dataset, "dataset_root") and getattr(dataset, "dataset_root") else None
+            try:
+                samples_by_split = {k: dataset.samples(k) for k in ["train", "valid", "test"]}
+            except Exception:
+                samples_by_split = {k: [] for k in ["train", "valid", "test"]}
             train_samples = samples_by_split["train"]
-            class_names = dataset.class_names
+            try:
+                class_names = dataset.class_names
+            except Exception:
+                class_names = list(getattr(system, "class_names", []))
         raw_metrics = {}
         metrics_path = (config.get("web") or {}).get("metrics_path")
         if metrics_path:
@@ -592,6 +611,50 @@ def create_app(config_path: str | Path | None = None) -> Flask:
 
         image = image.convert("RGB")
         out = _predict_temporal_no_pose(system, image, session_id=session_id)
+
+        detector_bbox = None
+        detector_score = None
+        try:
+            detector = _get_browser_camera_detector()
+            import numpy as np
+            import cv2
+
+            frame = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+            detections = detector.detect(frame, timestamp_ms=out.get("timestamp"))
+            if detections:
+                det0 = max(detections, key=lambda d: float(getattr(d, "score", 0.0)))
+                x1, y1, x2, y2 = det0.bbox.clip(width=frame.shape[1], height=frame.shape[0]).as_xyxy()
+                detector_bbox = [int(x1), int(y1), int(x2), int(y2)]
+                detector_score = float(det0.score)
+        except Exception:
+            detector_bbox = None
+            detector_score = None
+
+        pose_detected = False
+        pose_landmarks = None
+        try:
+            overlay_provider = system.pose_overlay
+            if overlay_provider is not None and hasattr(overlay_provider, "_extract_landmarks"):
+                landmarks = overlay_provider._extract_landmarks(image)  # type: ignore[attr-defined]
+                if landmarks:
+                    pose_detected = True
+                    pose_landmarks = []
+                    for lm in landmarks:
+                        pose_landmarks.append(
+                            {
+                                "x": float(getattr(lm, "x", 0.0)),
+                                "y": float(getattr(lm, "y", 0.0)),
+                                "visibility": float(getattr(lm, "visibility", 1.0)),
+                            }
+                        )
+        except Exception:
+            pose_detected = False
+            pose_landmarks = None
+
+        out["police_bbox"] = detector_bbox
+        out["police_score"] = detector_score
+        out["pose_detected"] = pose_detected
+        out["pose_landmarks"] = pose_landmarks
         return jsonify(_serialize_prediction(out))
 
     @app.route("/api/predict/video-upload", methods=["POST"])

@@ -60,6 +60,8 @@ const hardClasses = document.getElementById("hard-classes");
 const cameraStartButton = document.getElementById("camera-start");
 const cameraStopButton = document.getElementById("camera-stop");
 const cameraVideo = document.getElementById("camera-video");
+const cameraBox = document.getElementById("camera-box");
+const cameraPoseCanvas = document.getElementById("camera-pose-canvas");
 const cameraCanvas = document.getElementById("camera-canvas");
 const cameraCommand = document.getElementById("camera-command");
 const cameraCommandDesc = document.getElementById("camera-command-desc");
@@ -128,6 +130,135 @@ function updateCameraPrediction(payload) {
       cameraCommandDesc.textContent = intent.description || "-";
     }
   }
+
+  if (cameraBox && payload?.police_bbox && cameraVideo) {
+    drawPoliceBox(payload.police_bbox, payload?.police_score);
+  } else if (cameraBox) {
+    clearPoliceBox();
+  }
+
+  const landmarks = payload?.pose_landmarks || null;
+  if (cameraPoseCanvas && cameraVideo) {
+    drawPoseCanvas(landmarks);
+  }
+}
+
+const POSE_CONNECTIONS = [
+  [11, 12],
+  [11, 13],
+  [13, 15],
+  [12, 14],
+  [14, 16],
+  [11, 23],
+  [12, 24],
+  [23, 24],
+];
+
+function drawPoseCanvas(landmarks) {
+  const ctx = cameraPoseCanvas?.getContext?.("2d");
+  if (!ctx || !cameraVideo) {
+    return;
+  }
+
+  const vw = cameraVideo.videoWidth || 0;
+  const vh = cameraVideo.videoHeight || 0;
+  if (!vw || !vh) {
+    return;
+  }
+
+  const rect = cameraPoseCanvas.getBoundingClientRect();
+  const cw = Math.max(1, Math.round(rect.width));
+  const ch = Math.max(1, Math.round(rect.height));
+  if (cameraPoseCanvas.width !== cw) cameraPoseCanvas.width = cw;
+  if (cameraPoseCanvas.height !== ch) cameraPoseCanvas.height = ch;
+
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.drawImage(cameraVideo, 0, 0, cw, ch);
+
+  if (!Array.isArray(landmarks) || landmarks.length === 0) {
+    return;
+  }
+
+  const sx = cw;
+  const sy = ch;
+  function pt(i) {
+    const p = landmarks[i];
+    if (!p) return null;
+    return [p.x * sx, p.y * sy, p.visibility ?? 1];
+  }
+
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(255, 140, 80, 0.95)";
+  POSE_CONNECTIONS.forEach(([a, b]) => {
+    const pa = pt(a);
+    const pb = pt(b);
+    if (!pa || !pb) return;
+    ctx.beginPath();
+    ctx.moveTo(pa[0], pa[1]);
+    ctx.lineTo(pb[0], pb[1]);
+    ctx.stroke();
+  });
+
+  const keyIdx = [11, 12, 13, 14, 15, 16, 23, 24];
+  keyIdx.forEach((i) => {
+    const p = pt(i);
+    if (!p) return;
+    const [x, y, vis] = p;
+    let color = "rgba(220, 70, 70, 0.95)";
+    if (vis >= 0.75) color = "rgba(48, 180, 90, 0.95)";
+    else if (vis >= 0.45) color = "rgba(230, 170, 30, 0.95)";
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function clearPoliceBox() {
+  const ctx = cameraBox?.getContext?.("2d");
+  if (!ctx) {
+    return;
+  }
+  ctx.clearRect(0, 0, cameraBox.width, cameraBox.height);
+}
+
+function drawPoliceBox(bbox, score) {
+  const ctx = cameraBox?.getContext?.("2d");
+  if (!ctx || !cameraVideo) {
+    return;
+  }
+
+  const vw = cameraVideo.videoWidth || 0;
+  const vh = cameraVideo.videoHeight || 0;
+  if (!vw || !vh) {
+    return;
+  }
+
+  const rect = cameraVideo.getBoundingClientRect();
+  const cw = Math.max(1, Math.round(rect.width));
+  const ch = Math.max(1, Math.round(rect.height));
+  if (cameraBox.width !== cw) cameraBox.width = cw;
+  if (cameraBox.height !== ch) cameraBox.height = ch;
+
+  const sx = cw / vw;
+  const sy = ch / vh;
+  const [x1, y1, x2, y2] = bbox;
+  const x = Math.round(x1 * sx);
+  const y = Math.round(y1 * sy);
+  const w = Math.max(0, Math.round((x2 - x1) * sx));
+  const h = Math.max(0, Math.round((y2 - y1) * sy));
+
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.strokeStyle = "rgba(80, 200, 120, 0.95)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x, y, w, h);
+  ctx.fillStyle = "rgba(80, 200, 120, 0.95)";
+  ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  const txt = typeof score === "number" ? `police ${(score * 100).toFixed(0)}%` : "police";
+  ctx.fillText(txt, x + 6, Math.max(18, y - 8));
 }
 
 function stopCameraTracks() {
@@ -253,6 +384,13 @@ async function stopCamera() {
     cameraCaptureTimer = null;
   }
   stopCameraTracks();
+  clearPoliceBox();
+  if (cameraPoseCanvas) {
+    const ctx = cameraPoseCanvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, cameraPoseCanvas.width, cameraPoseCanvas.height);
+    }
+  }
   setCameraUiState(false);
   if (cameraError) {
     cameraError.textContent = "摄像头未启动。";

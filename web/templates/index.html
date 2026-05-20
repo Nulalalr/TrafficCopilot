@@ -183,11 +183,21 @@
           <button id="camera-stop" class="ghost-button">停止</button>
         </div>
       </div>
-      <div class="preview-wrap">
-        <video id="camera-video" autoplay playsinline muted></video>
-        <canvas id="camera-canvas" style="display:none;"></canvas>
-        <small id="camera-hint" class="pose-status">浏览器将调用本机摄像头；每隔一段时间截帧上传到后端做推理（点击停止结束）。</small>
+      <div class="camera-grid">
+        <div class="camera-stage">
+          <span class="preview-title">人体位置检测（框出交警）</span>
+          <div class="camera-stack">
+            <video id="camera-video" autoplay playsinline muted></video>
+            <canvas id="camera-box" class="camera-overlay"></canvas>
+          </div>
+        </div>
+        <div class="camera-stage">
+          <span class="preview-title">实时骨架提取（Pose Overlay）</span>
+          <canvas id="camera-pose-canvas" class="camera-pose-canvas"></canvas>
+        </div>
       </div>
+      <canvas id="camera-canvas" style="display:none;"></canvas>
+      <small id="camera-hint" class="pose-status">浏览器将调用本机摄像头；定时截帧上传到后端：返回人体检测框 + 骨架叠加 + 手势识别与时序指令。</small>
       <div class="result-grid">
         <div class="result-card accent">
           <span>稳定输出指令</span>
