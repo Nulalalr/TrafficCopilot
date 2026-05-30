@@ -1,0 +1,57 @@
+web:
+  host: 127.0.0.1
+  port: 5000
+  debug: false
+  metrics_path: experiments/pose_gru_police_gesture_v1/metrics.json
+  eval_cache_ttl_sec: 600
+  camera_config_path: config/camera_pose_sequence.yaml
+  video_config_path: config/video_pose_sequence.yaml
+
+data:
+  dataset_root: "data/video_frames_ctp_v1"
+
+thresholds:
+  confidence: 0.5
+  margin: 0.08
+
+system:
+  dataset:
+    target: core.plugins.roboflow_dataset:RoboflowDataset
+    params: {}
+
+  predictor:
+    target: core.plugins.pose_sequence_classifier:PoseSequenceClassifier
+    params:
+      checkpoint_path: experiments/pose_gru_police_gesture_v1/best_model.pth
+      config_path: experiments/pose_gru_police_gesture_v1/config.yaml
+      device: auto
+      model_name: Pose GRU (police_gesture_v1)
+      model_path: weights/pose_landmarker_lite.task
+      clip_len: 16
+
+  intent_engine:
+    target: core.plugins.temporal_intent:TemporalIntentEngine
+    params:
+      window_size: 5
+      activation_count: 3
+      hold_frames: 2
+      label_to_command:
+        change lanes: CHANGE_LANES
+        go straight: GO_STRAIGHT
+        pull over: PULL_OVER
+        slow down: SLOW_DOWN
+        stop: STOP
+        turn left: TURN_LEFT
+        turn right: TURN_RIGHT
+        wait for  left turn: WAIT_LEFT_TURN
+      command_descriptions:
+        CHANGE_LANES: Suggest lane change
+        GO_STRAIGHT: Allow going straight
+        PULL_OVER: Pull over to roadside
+        SLOW_DOWN: Slow down and observe
+        STOP: Stop immediately
+        TURN_LEFT: Allow left turn
+        TURN_RIGHT: Allow right turn
+        WAIT_LEFT_TURN: Wait for left turn
+        UNKNOWN: Confidence too low, degrade to safe state
+
