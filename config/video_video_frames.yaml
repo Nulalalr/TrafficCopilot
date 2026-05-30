@@ -66,12 +66,8 @@ system:
         UNKNOWN: Confidence too low, degrade to safe state
 
   police_detector:
-    target: core.plugins.mediapipe_police_detector:MediaPipePosePoliceDetector
-    params:
-      model_path: weights/pose_landmarker_lite.task
-      num_poses: 2
-      padding_ratio: 0.25
-      min_score: 0.45
+    target: core.plugins.full_frame_detector:FullFrameDetector
+    params: {}
 
   tracker:
     target: core.plugins.single_iou_tracker:SingleIouTracker
