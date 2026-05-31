@@ -28,14 +28,14 @@ from core.utils.video_dataset import TrafficGestureVideoDataset
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 CLASS_NAMES = [
-    "change lanes",
-    "go straight",
-    "pull over",
-    "slow down",
-    "stop",
-    "turn left",
-    "turn right",
-    "wait for  left turn",
+    "Stop",
+    "Forward",
+    "Left Turn",
+    "Left Turn Waiting",
+    "Right Turn",
+    "Lane Changing",
+    "Slow Down",
+    "Pull Over",
 ]
 
 

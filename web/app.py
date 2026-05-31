@@ -29,14 +29,14 @@ DEMO_SCENARIOS = [
     {
         "id": "intersection_control",
         "name": "Intersection Control",
-        "description": "STOP -> GO_STRAIGHT -> TURN_LEFT",
-        "labels": ["stop", "stop", "stop", "go straight", "go straight", "go straight", "turn left", "turn left", "turn left"],
+        "description": "STOP -> FORWARD -> LEFT TURN",
+        "labels": ["Stop", "Stop", "Stop", "Forward", "Forward", "Forward", "Left Turn", "Left Turn", "Left Turn"],
     },
     {
         "id": "lane_guidance",
         "name": "Lane Guidance",
-        "description": "SLOW_DOWN -> CHANGE_LANES -> PULL_OVER",
-        "labels": ["slow down", "slow down", "slow down", "change lanes", "change lanes", "change lanes", "pull over", "pull over", "pull over"],
+        "description": "SLOW DOWN -> LANE CHANGING -> PULL OVER",
+        "labels": ["Slow Down", "Slow Down", "Slow Down", "Lane Changing", "Lane Changing", "Lane Changing", "Pull Over", "Pull Over", "Pull Over"],
     },
 ]
 

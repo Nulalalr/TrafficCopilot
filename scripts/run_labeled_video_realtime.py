@@ -14,14 +14,14 @@ from core.system.factory import build_system, load_yaml
 
 
 CLASS_NAMES = [
-    "change lanes",
-    "go straight",
-    "pull over",
-    "slow down",
-    "stop",
-    "turn left",
-    "turn right",
-    "wait for  left turn",
+    "Stop",
+    "Forward",
+    "Left Turn",
+    "Left Turn Waiting",
+    "Right Turn",
+    "Lane Changing",
+    "Slow Down",
+    "Pull Over",
 ]
 
 

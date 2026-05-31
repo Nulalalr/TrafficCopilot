@@ -16,14 +16,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 CLASS_NAMES = [
-    "change lanes",
-    "go straight",
-    "pull over",
-    "slow down",
-    "stop",
-    "turn left",
-    "turn right",
-    "wait for  left turn",
+    "Stop",
+    "Forward",
+    "Left Turn",
+    "Left Turn Waiting",
+    "Right Turn",
+    "Lane Changing",
+    "Slow Down",
+    "Pull Over",
 ]
 
 

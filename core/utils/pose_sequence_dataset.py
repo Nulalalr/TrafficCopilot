@@ -10,14 +10,14 @@ from torch.utils.data import Dataset
 
 
 CLASS_NAMES = [
-    "change lanes",
-    "go straight",
-    "pull over",
-    "slow down",
-    "stop",
-    "turn left",
-    "turn right",
-    "wait for  left turn",
+    "Stop",
+    "Forward",
+    "Left Turn",
+    "Left Turn Waiting",
+    "Right Turn",
+    "Lane Changing",
+    "Slow Down",
+    "Pull Over",
 ]
 
 
@@ -142,4 +142,3 @@ class PoliceGesturePoseSequenceDataset(Dataset):
         for seq in self.sequences:
             counts[self.class_names[int(seq["target"])]] += 1
         return counts
-

@@ -43,14 +43,14 @@ system:
       activation_count: 3
       hold_frames: 2
       label_to_command:
-        change lanes: CHANGE_LANES
-        go straight: GO_STRAIGHT
-        pull over: PULL_OVER
-        slow down: SLOW_DOWN
-        stop: STOP
-        turn left: TURN_LEFT
-        turn right: TURN_RIGHT
-        wait for  left turn: WAIT_LEFT_TURN
+        Stop: STOP
+        Forward: GO_STRAIGHT
+        Left Turn: TURN_LEFT
+        Left Turn Waiting: WAIT_LEFT_TURN
+        Right Turn: TURN_RIGHT
+        Lane Changing: CHANGE_LANES
+        Slow Down: SLOW_DOWN
+        Pull Over: PULL_OVER
       command_descriptions:
         CHANGE_LANES: Suggest lane change
         GO_STRAIGHT: Allow going straight
@@ -72,4 +72,3 @@ system:
       iou_threshold: 0.2
       max_lost: 15
       smooth: 0.65
-
