@@ -29,12 +29,13 @@ CLASS_NAMES = [
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert labeled videos into a frame classification dataset.")
-    parser.add_argument("--input-root", default=str(PROJECT_ROOT / "data" / "raw" / "police_gesture_v1"))
-    parser.add_argument("--output-root", default=str(PROJECT_ROOT / "data" / "video_frames_ctp_v1"))
+    parser.add_argument("--input-root", default=str(PROJECT_ROOT / "police_gesture_v1"))
+    parser.add_argument("--output-root", default=str(PROJECT_ROOT / "police_gesture_v1_frames"))
     parser.add_argument("--sample-every", type=int, default=5, help="Keep one frame every N frames.")
     parser.add_argument("--max-per-class-per-video", type=int, default=80)
     parser.add_argument("--skip-background", action="store_true", default=True)
     parser.add_argument("--max-videos-per-split", type=int, default=0, help="0 means no limit.")
+    parser.add_argument("--valid-ratio", type=float, default=0.1)
     return parser.parse_args()
 
 
@@ -159,7 +160,7 @@ def main():
         summary[split_name] = {"videos": len(video_paths), "frames_saved": total_saved}
         if split_name == "train":
             split_rows.sort(key=lambda item: item["filename"])
-            cut = max(1, int(len(split_rows) * 0.1))
+            cut = max(1, int(len(split_rows) * float(args.valid_ratio)))
             valid_rows = split_rows[-cut:]
             train_rows = split_rows[:-cut]
             relocate_rows(valid_rows, output_root / "train", output_root / "valid")

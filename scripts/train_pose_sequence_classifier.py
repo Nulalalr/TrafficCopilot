@@ -94,6 +94,8 @@ def create_dataloaders(config: dict):
         "num_workers": int(config["train"]["num_workers"]),
         "pin_memory": bool(config["train"]["pin_memory"]),
     }
+    if int(config["train"]["num_workers"]) > 0:
+        loader_kwargs["persistent_workers"] = True
     train_loader = DataLoader(train_ds, shuffle=True, drop_last=True, **loader_kwargs)
     valid_loader = DataLoader(valid_ds, shuffle=False, **loader_kwargs)
     test_loader = DataLoader(test_ds, shuffle=False, **loader_kwargs)
@@ -151,6 +153,9 @@ def main() -> int:
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    if device.type == "cuda":
+        torch.set_float32_matmul_precision("high")
+
     run_dir = build_run_dir(config)
     shutil.copy2(args.config, run_dir / "config.yaml")
 
@@ -165,6 +170,9 @@ def main() -> int:
         num_layers=int(config["model"]["num_layers"]),
         dropout=float(config["model"]["dropout"]),
     ).to(device)
+
+    if device.type == "cuda" and torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
 
     if bool(config["train"]["use_class_weights"]):
         class_weights = build_class_weights(train_ds.class_counts(), class_names).to(device)
@@ -204,7 +212,7 @@ def main() -> int:
 
         state = {
             "epoch": epoch,
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
             "class_names": class_names,
@@ -218,7 +226,10 @@ def main() -> int:
         scheduler.step()
 
     best_state = torch.load(best_ckpt_path, map_location=device)
-    model.load_state_dict(best_state["model_state_dict"])
+    if isinstance(model, nn.DataParallel):
+        model.module.load_state_dict(best_state["model_state_dict"])
+    else:
+        model.load_state_dict(best_state["model_state_dict"])
     test_loss, test_acc, test_predictions, test_targets = evaluate(model, test_loader, criterion, device)
 
     metrics = {
@@ -249,4 +260,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

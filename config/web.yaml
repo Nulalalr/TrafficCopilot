@@ -2,13 +2,13 @@ web:
   host: 127.0.0.1
   port: 5000
   debug: false
-  metrics_path: experiments/mobilenetv3_albu_weather/metrics.json
+  metrics_path: experiments/mobilenetv3_baseline/metrics.json
   eval_cache_ttl_sec: 600
   camera_config_path: config/camera.yaml
   video_config_path: config/video.yaml
 
 data:
-  dataset_root: "data/raw/traffic gestures.v1i.multiclass"
+  dataset_root: "police_gesture_v1_frames"
 
 thresholds:
   confidence: 0.5
@@ -22,10 +22,10 @@ system:
   predictor:
     target: core.plugins.pytorch_classifier:PyTorchMobileNetV3Classifier
     params:
-      checkpoint_path: experiments/mobilenetv3_albu_weather/best_model_quantized.pth
-      config_path: experiments/mobilenetv3_albu_weather/config.yaml
+      checkpoint_path: experiments/mobilenetv3_baseline/best_model.pth
+      config_path: experiments/mobilenetv3_baseline/config.yaml
       device: auto
-      model_name: MobileNetV3 + Weather Aug
+      model_name: MobileNetV3 RGB (police_gesture_v1)
 
   pose_overlay:
     target: core.plugins.mediapipe_pose_overlay:MediaPipePoseOverlay
